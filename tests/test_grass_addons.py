@@ -114,3 +114,63 @@ class TestOfflineInstall:
             lambda *a, **k: pytest.fail("installation attempted a network call"),
         )
         ga.install_bundled_addon(PLUGIN_DIR)
+
+
+class TestFindGrass:
+    def test_searches_qgis_dirs_with_the_grass_override_key(self, monkeypatch):
+        # Arrange -- same lookup the Dependencies panel uses for its GRASS row.
+        calls = []
+        monkeypatch.setattr(pu, "qgis_bin_dirs", lambda: ["/qgis/bin"])
+        monkeypatch.setattr(
+            pu, "find_exe",
+            lambda name, key=None, extra_dirs=None:
+                calls.append((name, key, extra_dirs)) or "/usr/bin/grass",
+        )
+
+        # Act
+        found = pu.find_grass()
+
+        # Assert
+        assert found == "/usr/bin/grass"
+        assert calls == [("grass", "grass", ["/qgis/bin"])]
+
+    def test_returns_none_when_grass_is_absent(self, monkeypatch):
+        monkeypatch.setattr(pu, "qgis_bin_dirs", lambda: [])
+        monkeypatch.setattr(pu, "find_exe", lambda *a, **k: None)
+        assert pu.find_grass() is None
+
+
+class TestEnsureBundledAddon:
+    @pytest.fixture
+    def addon_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(pu, "_ask_grass_for_module", lambda *a, **k: None)
+        pu.clear_module_cache()
+        return tmp_path
+
+    def test_reports_missing_before_install(self, addon_dir):
+        assert not ga.bundled_addon_installed()
+
+    def test_installs_when_missing(self, addon_dir):
+        # Act
+        installed = ga.ensure_bundled_addon(PLUGIN_DIR)
+
+        # Assert
+        assert REQUIRED <= set(installed)
+        assert ga.bundled_addon_installed()
+
+    def test_skips_when_already_installed(self, addon_dir, monkeypatch):
+        # Arrange
+        ga.install_bundled_addon(PLUGIN_DIR)
+        monkeypatch.setattr(
+            ga, "install_bundled_addon",
+            lambda *a, **k: pytest.fail("reinstalled an installed addon"),
+        )
+        messages = []
+
+        # Act
+        installed = ga.ensure_bundled_addon(PLUGIN_DIR, log=messages.append)
+
+        # Assert
+        assert installed == []
+        assert any("already installed" in m for m in messages)

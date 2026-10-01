@@ -36,6 +36,8 @@ from .landslide_mainwindow import Ui_MainWindow as Ui_Landslide
 from .eil_mainwindow import Ui_MainWindow as Ui_EIL
 from . import platform_utils as pu
 from .dependency_panel import DependencyPanel
+from .grass_gate import GrassRequiredDialog
+from . import grass_addons
 
 from pathlib import Path
 
@@ -598,6 +600,13 @@ class SetupWorker(QThread):
         try:
             for venv_name, requirements, label in self.ENVIRONMENTS:
                 venv_dir = os.path.join(self.envs_dir, venv_name)
+                requirements_path = os.path.join(self.base_dir, requirements)
+
+                # Re-running pip on a ready environment costs minutes for
+                # nothing; setup may run just to install the GRASS addon.
+                if pu.venv_is_provisioned(venv_name, requirements_path):
+                    self.progress.emit(f"{label} environment already set up.")
+                    continue
 
                 self.progress.emit(f"Preparing {label} environment...")
                 python_exe = env_setup.create_venv(
@@ -609,12 +618,16 @@ class SetupWorker(QThread):
                     f"Installing {label} dependencies "
                     "(this may take several minutes)..."
                 )
-                requirements_path = os.path.join(self.base_dir, requirements)
                 env_setup.install_requirements(
                     python_exe, requirements_path,
                     env=setup_env, log=self.progress.emit,
                 )
                 env_setup.mark_provisioned(venv_dir, requirements_path)
+
+            # GRASS presence is guaranteed by the gate in
+            # check_and_setup_environments before this worker starts.
+            self.progress.emit("Installing GRASS addon r.slopeunits...")
+            grass_addons.ensure_bundled_addon(self.base_dir, log=self.progress.emit)
 
             self.finished.emit(True, "Setup Complete!")
         except Exception as exc:
@@ -809,18 +822,24 @@ class UnifiedPluginDialog(QMainWindow):
             combobox.setCurrentIndex(combobox.count() - 1)
 
     def check_and_setup_environments(self, force=False):
-        ls_venv_dir = os.path.join(pu.ENVS_DIR, "ls_detect_env")
-        eil_venv_dir = os.path.join(pu.ENVS_DIR, "venv")
-        
+        # Setup installs an addon into GRASS, so nothing proceeds without it.
+        if not self._ensure_grass_installed():
+            return
+
         # A present interpreter is not evidence of a usable environment:
         # OSGeo4W's venv creates a working python.exe and only then fails to
         # bootstrap pip, so readiness is recorded explicitly after the
         # requirements install rather than inferred from what exists on disk.
-        ready = all(
+        venvs_ready = all(
             pu.venv_is_provisioned(name, os.path.join(self._base_dir, requirements))
             for name, requirements in pu.ENV_REQUIREMENTS.items()
         )
-        if ready and not force:
+        if venvs_ready and grass_addons.bundled_addon_installed() and not force:
+            return
+
+        # Only the addon missing: an offline file copy, nothing to confirm.
+        if venvs_ready:
+            self._start_setup()
             return
 
         reply = QMessageBox.question(
@@ -836,16 +855,31 @@ class UnifiedPluginDialog(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            self.setup_dialog = QProgressDialog("Initializing Setup...", None, 0, 0, self)
-            self.setup_dialog.setWindowTitle("Installing Dependencies")
-            self.setup_dialog.setWindowModality(Qt.WindowModal)
-            self.setup_dialog.setCancelButton(None)
-            self.setup_dialog.show()
+            self._start_setup()
 
-            self.setup_worker = SetupWorker(self._base_dir, self.ls_venv_python, self.eil_venv_python)
-            self.setup_worker.progress.connect(self.setup_dialog.setLabelText)
-            self.setup_worker.finished.connect(self.on_setup_finished)
-            self.setup_worker.start()
+    def _ensure_grass_installed(self):
+        """Block on a modal prompt until GRASS is found; close if declined."""
+        if pu.find_grass():
+            return True
+
+        gate = GrassRequiredDialog(self)
+        accepted = gate.exec_() == QtWidgets.QDialog.Accepted
+        self.dependency_panel.refresh()
+        if not accepted:
+            self.close()
+        return accepted
+
+    def _start_setup(self):
+        self.setup_dialog = QProgressDialog("Initializing Setup...", None, 0, 0, self)
+        self.setup_dialog.setWindowTitle("Installing Dependencies")
+        self.setup_dialog.setWindowModality(Qt.WindowModal)
+        self.setup_dialog.setCancelButton(None)
+        self.setup_dialog.show()
+
+        self.setup_worker = SetupWorker(self._base_dir, self.ls_venv_python, self.eil_venv_python)
+        self.setup_worker.progress.connect(self.setup_dialog.setLabelText)
+        self.setup_worker.finished.connect(self.on_setup_finished)
+        self.setup_worker.start()
 
     def on_setup_finished(self, success, message):
         self.setup_dialog.close()
@@ -856,7 +890,8 @@ class UnifiedPluginDialog(QMainWindow):
 
         if success:
             QMessageBox.information(
-                self, "Setup Complete", "Python environments are ready."
+                self, "Setup Complete",
+                "Python environments and the GRASS addon are ready."
             )
         else:
             QMessageBox.critical(self, "Setup Failed", f"An error occurred:\n{message}")

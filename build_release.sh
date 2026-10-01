@@ -75,6 +75,8 @@ REQUIRED=(
   "platform_utils.py"
   "dependency_panel.py"
   "busy_overlay.py"
+  "grass_addons.py"
+  "grass_gate.py"
 )
 
 echo "Packaging $PLUGIN_NAME"

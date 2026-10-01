@@ -28,10 +28,16 @@ copy that lives somewhere unusual (the location is remembered).
 | MPI | Depositional routing | `brew install open-mpi` | [MS-MPI](https://learn.microsoft.com/message-passing-interface/microsoft-mpi) | `apt install openmpi-bin` |
 | TauDEM | Depositional routing | build from source | TauDEM 5.3 installer | build from source |
 
-**Landslide Detection needs none of these** — it is never blocked by a missing
-GRASS or TauDEM. Only the EIL and depositional-routing pipelines are.
+**GRASS is required before the plugin will finish setting up.** If it is not
+detected when the plugin opens, a blocking *GRASS GIS Required* dialog appears.
+Continue stays disabled until GRASS is found; the dialog re-checks every few
+seconds, and *Locate GRASS…* accepts a copy installed somewhere unusual.
+Closing the dialog closes the plugin. GDAL, MPI and TauDEM only block the
+pipelines that use them.
 
-The `r.slopeunits` GRASS addon is also required for slope-unit generation:
+The `r.slopeunits` GRASS addon is installed automatically during setup, from
+the copy bundled in `vendor/grass_addons/` (no network needed). To install it
+by hand instead:
 
 ```
 g.extension extension=r.slopeunits
@@ -52,9 +58,11 @@ Administrator prompt. If QGIS came from OSGeo4W, adding GRASS through
 ### Python environments
 
 On first run the plugin builds two virtualenvs under `~/.mlprep_envs`
-(`ls_detect_env`, `venv`) from `requirements_ls.txt` and `requirements_eil.txt`.
-This takes several minutes and needs network access. Nothing is installed into
-QGIS's own Python.
+(`ls_detect_env`, `venv`) from `requirements_ls.txt` and `requirements_eil.txt`,
+then installs the `r.slopeunits` addon into GRASS's user addon directory
+(`~/.grass8/addons`, or `%APPDATA%\GRASS8\addons` on Windows). This takes
+several minutes and needs network access for the pip installs. Nothing is
+installed into QGIS's own Python.
 
 ---
 

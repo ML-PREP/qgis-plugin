@@ -30,6 +30,8 @@ LOAD_PATH = [
     "eil_mainwindow.py",
     "busy_overlay.py",
     "log_panel.py",
+    "grass_addons.py",
+    "grass_gate.py",
 ]
 
 # Third-party packages QGIS does NOT guarantee on every platform.

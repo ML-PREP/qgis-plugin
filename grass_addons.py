@@ -91,3 +91,25 @@ def install_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
         installed.append(module)
 
     return installed
+
+
+def bundled_addon_installed():
+    """True when GRASS can find every addon module the engine calls."""
+    return all(pu.grass_addon_installed(m) for m in pu.GRASS_ADDON_MODULES)
+
+
+def ensure_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
+    """Install the bundled addon unless it is already present.
+
+    Returns the installed module names, or [] when nothing needed doing.
+    """
+    log = log or (lambda _message: None)
+
+    if bundled_addon_installed():
+        log(f"   > GRASS addon {addon} already installed")
+        return []
+
+    log(f"   > Installing GRASS addon {addon} into {pu.grass_addon_dir()}")
+    installed = install_bundled_addon(plugin_dir, addon, log=log)
+    pu.clear_module_cache()
+    return installed

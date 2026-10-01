@@ -549,6 +549,15 @@ IN_PROCESS_MODULES = [
 GRASS_ADDON_MODULES = ["r.slopeunits.create"]
 
 
+def find_grass():
+    """Absolute path to the GRASS launcher, or None if GRASS is not installed.
+
+    Same lookup as the Dependencies panel's GRASS row, so the setup gate and
+    the panel never disagree about whether GRASS is present.
+    """
+    return find_exe("grass", "grass", extra_dirs=qgis_bin_dirs())
+
+
 def grass_addon_dir():
     if IS_WINDOWS:
         appdata = os.environ.get("APPDATA")
