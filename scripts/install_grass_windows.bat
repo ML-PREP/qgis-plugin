@@ -23,6 +23,13 @@ set "GRASS_SETUP=WinGRASS-%GRASS_VERSION%-1-Setup.exe"
 set "GRASS_URL=https://grass.osgeo.org/grass84/binary/mswindows/native/%GRASS_SETUP%"
 set "ADDON=r.slopeunits"
 set "PROBE_MODULE=r.slopeunits.create"
+REM Newest first; matches _ALIASES["grass"] in platform_utils.py. QGIS 3.44
+REM bundles grass85.
+set "GRASS_NAMES=grass86.bat grass85.bat grass84.bat grass83.bat grass82.bat grass.bat"
+
+REM The plugin passes the addon directory it checks (and that it points GRASS
+REM at). Run by hand, fall back to GRASS's own Windows default.
+if not defined GRASS_ADDON_BASE set "GRASS_ADDON_BASE=%APPDATA%\GRASS8\addons"
 
 set "MODE=install"
 if /i "%~1"=="/check"      set "MODE=check"
@@ -38,129 +45,45 @@ echo.
 
 REM ---------------------------------------------------------------- find GRASS
 call :find_grass
-if defined GRASS_EXE (
-    echo [OK]      GRASS found:  !GRASS_EXE!
-) else (
-    echo [MISSING] GRASS GIS is not installed.
+REM Mirrors platform_utils.find_grass(): the GRASS the plugin already resolved
+REM (passed in MLPREP_GRASS_EXE), then versioned Program Files dirs, the GRASS
+REM bundled inside QGIS, OSGeo4W, then PATH. Missing the QGIS-bundled copy
+REM would trigger a needless ~940 MB GRASS download.
+set "GRASS_EXE="
+if defined MLPREP_GRASS_EXE if exist "%MLPREP_GRASS_EXE%" set "GRASS_EXE=%MLPREP_GRASS_EXE%"
+if defined GRASS_EXE exit /b 0
+for %%R in ("%ProgramFiles%" "%ProgramFiles(x86)%") do (
+    for /f "delims=" %%D in ('dir /b /ad /o-n "%%~R\GRASS GIS *" 2^>nul') do (
+        for %%B in (%GRASS_NAMES%) do (
+            if not defined GRASS_EXE if exist "%%~R\%%D\%%B" set "GRASS_EXE=%%~R\%%D\%%B"
+        )
+    )
 )
-
-if "%MODE%"=="check" goto :report
-if "%MODE%"=="addon" goto :addon_stage
-if defined GRASS_EXE goto :addon_stage
-
-REM ------------------------------------------------------------- install GRASS
-echo.
-echo Downloading %GRASS_SETUP% (about 940 MB^)...
-echo   from %GRASS_URL%
-echo.
-
-where curl.exe >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] curl.exe not found. It ships with Windows 10 1803 and newer.
-    echo         Download this file manually and run it:
-    echo           %GRASS_URL%
-    goto :fail
+for /f "delims=" %%D in ('dir /b /ad /o-n "%ProgramFiles%\QGIS *" 2^>nul') do (
+    for %%B in (%GRASS_NAMES%) do (
+        if not defined GRASS_EXE if exist "%ProgramFiles%\%%D\bin\%%B" set "GRASS_EXE=%ProgramFiles%\%%D\bin\%%B"
+    )
+    for /d %%G in ("%ProgramFiles%\%%D\apps\grass\grass*") do (
+        for %%B in (%GRASS_NAMES%) do (
+            if not defined GRASS_EXE if exist "%%~G\bin\%%B" set "GRASS_EXE=%%~G\bin\%%B"
+        )
+    )
 )
-
-set "SETUP_PATH=%TEMP%\%GRASS_SETUP%"
-curl.exe -L --fail --retry 3 --retry-delay 5 -o "%SETUP_PATH%" "%GRASS_URL%"
-if errorlevel 1 (
-    echo [ERROR] Download failed.
-    goto :fail
-)
-if not exist "%SETUP_PATH%" (
-    echo [ERROR] Download reported success but the file is missing.
-    goto :fail
-)
-
-echo.
-echo Running the installer silently. This takes several minutes.
-echo (If nothing happens, re-run this script from an Administrator prompt.^)
-"%SETUP_PATH%" /S
-REM NSIS returns immediately with /S; wait for the target directory to appear.
-call :wait_for_grass 300
-
-call :find_grass
-if not defined GRASS_EXE (
-    echo.
-    echo [WARN] Silent install did not produce a GRASS directory.
-    echo        Launching the installer interactively instead...
-    start /wait "" "%SETUP_PATH%"
-    call :find_grass
+for %%R in ("C:\OSGeo4W\bin" "C:\OSGeo4W64\bin") do (
+    for %%B in (%GRASS_NAMES%) do (
+        if not defined GRASS_EXE if exist "%%~R\%%B" set "GRASS_EXE=%%~R\%%B"
+    )
 )
 if not defined GRASS_EXE (
-    echo [ERROR] GRASS still not found after installation.
-    goto :fail
+    for %%B in (%GRASS_NAMES%) do (
+        if not defined GRASS_EXE (
+            for /f "delims=" %%P in ('where %%B 2^>nul') do (
+                if not defined GRASS_EXE set "GRASS_EXE=%%P"
+            )
+        )
+    )
 )
-echo [OK]      GRASS installed: !GRASS_EXE!
-del /q "%SETUP_PATH%" 2>nul
-
-REM ------------------------------------------------------------- install addon
-:addon_stage
-if not defined GRASS_EXE (
-    echo [ERROR] Cannot install the addon without GRASS.
-    goto :fail
-)
-
-echo.
-echo Installing the %ADDON% addon...
-echo   (into %APPDATA%\GRASS8\addons - where the plugin looks^)
-echo.
-
-REM --tmp-location creates a throwaway project, so no existing mapset is needed.
-call "!GRASS_EXE!" --tmp-location EPSG:4326 --exec g.extension extension=%ADDON%
-set "GEXT_RC=!errorlevel!"
-
-call :check_addon
-if "!ADDON_OK!"=="1" goto :report
-
-echo.
-echo [WARN] g.extension did not install %ADDON% (exit !GEXT_RC!^).
-echo        On Windows g.extension has to build the addon, and GRASS ships
-echo        without the build tools. %ADDON% is pure Python, so it can be
-echo        installed by copying the files instead.
-echo.
-call :manual_addon_install
-call :check_addon
-if not "!ADDON_OK!"=="1" (
-    echo.
-    echo [ERROR] Could not install %ADDON% automatically.
-    echo         Install it by hand:
-    echo           1. Download https://github.com/OSGeo/grass-addons/archive/refs/heads/grass8.zip
-    echo           2. Copy each .py from src\raster\r.slopeunits\r.slopeunits.*\
-    echo              into %APPDATA%\GRASS8\addons\scripts\
-    echo           3. Re-run this script with /check
-    goto :fail
-)
-
-REM ------------------------------------------------------------------- report
-:report
-echo.
-echo ============================================================
-echo   Result
-echo ============================================================
-
-if defined GRASS_EXE (
-    echo   GRASS GIS        : OK   !GRASS_EXE!
-) else (
-    echo   GRASS GIS        : MISSING
-)
-
-call :check_addon
-if "!ADDON_OK!"=="1" (
-    echo   %ADDON%     : OK
-) else (
-    echo   %ADDON%     : MISSING
-)
-
-echo.
-echo   The plugin still needs MS-MPI and TauDEM for depositional
-echo   routing. Open the plugin's Dependencies tab to see what is
-echo   still outstanding.
-echo.
-
-REM /check is a report: it always succeeds, so it is safe in CI and scripts.
-if "%MODE%"=="check" endlocal & exit /b 0
+exit /b 0
 if not defined GRASS_EXE goto :fail
 if not "!ADDON_OK!"=="1" goto :fail
 endlocal & exit /b 0
@@ -211,17 +134,17 @@ goto :wait_loop
 :check_addon
 set "ADDON_OK="
 if not defined GRASS_EXE exit /b 0
-if exist "%APPDATA%\GRASS8\addons\scripts\%PROBE_MODULE%.py" set "ADDON_OK=1"
-if exist "%APPDATA%\GRASS8\addons\scripts\%PROBE_MODULE%.bat" set "ADDON_OK=1"
-if exist "%APPDATA%\GRASS8\addons\bin\%PROBE_MODULE%.exe"     set "ADDON_OK=1"
+if exist "%GRASS_ADDON_BASE%\scripts\%PROBE_MODULE%.py" set "ADDON_OK=1"
+if exist "%GRASS_ADDON_BASE%\scripts\%PROBE_MODULE%.bat" set "ADDON_OK=1"
+if exist "%GRASS_ADDON_BASE%\bin\%PROBE_MODULE%.exe"     set "ADDON_OK=1"
 exit /b 0
 
 :manual_addon_install
 REM r.slopeunits is pure Python (r.slopeunits.create/.clean/.metrics/.optimize),
 REM so the modules can be placed directly in the GRASS addon directory without
 REM compiling anything.
-set "ADDON_SCRIPTS=%APPDATA%\GRASS8\addons\scripts"
-set "ADDON_BIN=%APPDATA%\GRASS8\addons\bin"
+set "ADDON_SCRIPTS=%GRASS_ADDON_BASE%\scripts"
+set "ADDON_BIN=%GRASS_ADDON_BASE%\bin"
 if not exist "%ADDON_SCRIPTS%" mkdir "%ADDON_SCRIPTS%" 2>nul
 if not exist "%ADDON_BIN%" mkdir "%ADDON_BIN%" 2>nul
 

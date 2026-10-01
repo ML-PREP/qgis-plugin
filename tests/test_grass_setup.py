@@ -209,3 +209,120 @@ class TestGrassAddonBase:
         env = pu.tool_environment(base={"GRASS_ADDON_BASE": "/elsewhere"})
 
         assert env["GRASS_ADDON_BASE"] == str(tmp_path)
+
+
+class TestScriptsUsePluginResolvedGrass:
+    def test_tool_environment_exports_the_gate_s_grass(self, monkeypatch):
+        monkeypatch.setattr(pu, "find_grass", lambda: "/qgis/bin/grass85")
+
+        env = pu.tool_environment(base={})
+
+        assert env[pu.ENV_GRASS_EXE] == "/qgis/bin/grass85"
+
+    @pytest.mark.skipif(pu.IS_WINDOWS or not shutil.which("bash"),
+                        reason="POSIX shell installer")
+    def test_shell_script_prefers_mlprep_grass_exe(self, tmp_path):
+        # Arrange -- a GRASS only the plugin knows about, nothing on PATH.
+        grass = tmp_path / "custom" / "grass85"
+        grass.parent.mkdir()
+        grass.write_text("#!/bin/sh\n")
+        grass.chmod(0o755)
+        home = tmp_path / "home"
+        home.mkdir()
+        env = {"HOME": str(home), "PATH": "/usr/bin:/bin",
+               "MLPREP_GRASS_EXE": str(grass)}
+
+        # Act
+        result = subprocess.run(["bash", SHELL_SCRIPT, "--check"],
+                                capture_output=True, text=True, env=env, timeout=60)
+
+        # Assert
+        assert f"GRASS found:  {grass}" in result.stdout
+
+    @pytest.mark.skipif(pu.IS_WINDOWS or not shutil.which("bash"),
+                        reason="POSIX shell installer")
+    def test_shell_script_installs_into_grass_addon_base(self, tmp_path):
+        # Arrange
+        grass = tmp_path / "grass84"
+        grass.write_text("#!/bin/sh\n")
+        grass.chmod(0o755)
+        addon_base = tmp_path / "addons"
+        home = tmp_path / "home"
+        home.mkdir()
+        env = {"HOME": str(home), "PATH": "/usr/bin:/bin",
+               "MLPREP_GRASS_EXE": str(grass),
+               "GRASS_ADDON_BASE": str(addon_base)}
+
+        # Act
+        result = subprocess.run(["bash", SHELL_SCRIPT, "--addon-only"],
+                                capture_output=True, text=True, env=env, timeout=60)
+
+        # Assert
+        assert result.returncode == 0, result.stdout
+        assert (addon_base / "scripts" / "r.slopeunits.create").is_file()
+        assert not (home / ".grass8").exists()
+
+
+class TestWindowsBatchScript:
+    """Static checks: the .bat cannot run here, so guard what broke before."""
+
+    @pytest.fixture
+    def bat(self):
+        path = os.path.join(PLUGIN_DIR, "scripts", "install_grass_windows.bat")
+        with open(path, newline="", encoding="ascii") as handle:
+            return handle.read()
+
+    def test_keeps_crlf_line_endings(self, bat):
+        # cmd.exe mis-parses labels and blocks in LF-only batch files.
+        assert "\n" not in bat.replace("\r\n", "")
+
+    def test_knows_the_grass_qgis_bundles(self, bat):
+        assert "grass85.bat" in bat and "grass86.bat" in bat
+
+    def test_searches_qgis_bundled_grass(self, bat):
+        assert "QGIS *" in bat and "apps\\grass\\grass*" in bat
+
+    def test_prefers_plugin_resolved_grass(self, bat):
+        assert "MLPREP_GRASS_EXE" in bat
+
+    def test_addon_dir_follows_grass_addon_base(self, bat):
+        # Only the fallback default may name the APPDATA path directly.
+        assert bat.count("%APPDATA%\\GRASS8\\addons") == 1
+        assert 'if not defined GRASS_ADDON_BASE set "GRASS_ADDON_BASE=' in bat
+
+
+class TestAskGrassProbe:
+    def run_probe(self, monkeypatch, is_windows):
+        seen = {}
+
+        def fake_run(command, **_kwargs):
+            seen["command"] = command
+            return subprocess.CompletedProcess(command, 0)
+
+        monkeypatch.setattr(pu, "IS_WINDOWS", is_windows)
+        monkeypatch.setattr(pu.subprocess, "run", fake_run)
+        monkeypatch.setattr(pu, "tool_environment", lambda: {})
+        # The real kwargs use subprocess.CREATE_NO_WINDOW, absent off Windows.
+        monkeypatch.setattr(pu, "subprocess_kwargs", lambda **_k: {})
+        pu.clear_module_cache()
+        pu._ask_grass_for_module("r.slopeunits.create", grass_exe="/usr/bin/grass")
+        pu.clear_module_cache()
+        return seen["command"]
+
+    def test_uses_tmp_location_which_grass_8_3_supports(self, monkeypatch):
+        # --tmp-project is GRASS 8.4+; Ubuntu 24.04 ships 8.3 and exits 2.
+        command = self.run_probe(monkeypatch, is_windows=False)
+
+        assert "--tmp-location" in command
+        assert "--tmp-project" not in command
+
+    def test_uses_python3_off_windows(self, monkeypatch):
+        # Ubuntu and macOS have no bare `python`.
+        command = self.run_probe(monkeypatch, is_windows=False)
+
+        assert command[command.index("--exec") + 1] == "python3"
+
+    def test_uses_python_on_windows(self, monkeypatch):
+        command = self.run_probe(monkeypatch, is_windows=True)
+
+        assert command[command.index("--exec") + 1] == "python"

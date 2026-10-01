@@ -37,7 +37,10 @@ BUNDLED_ADDON="$PLUGIN_DIR/vendor/grass_addons/$ADDON"
 # Keep in sync with platform_utils.ENVS_DIR / GRASS_ENV_DIR / grass_addon_dir().
 ENVS_DIR="$HOME/.mlprep_envs"
 GRASS_ENV_DIR="$ENVS_DIR/grass"
-ADDON_DIR="$HOME/.grass8/addons"
+# The plugin passes the addon directory it checks and points every GRASS at.
+# Run by hand, use the plugin's default; GRASS's own default on macOS
+# (~/Library/GRASS/<ver>/Addons) is NOT where the plugin looks.
+ADDON_DIR="${GRASS_ADDON_BASE:-$HOME/.grass8/addons}"
 
 GRASS_EXE=""
 
@@ -70,12 +73,17 @@ fail() {
 
 # ------------------------------------------------------------------- lookups
 
-# Mirrors platform_utils.find_grass(): the plugin-managed env first, then PATH,
-# then the usual install locations.
+# Mirrors platform_utils.find_grass(): the GRASS the plugin already resolved
+# (MLPREP_GRASS_EXE), the plugin-managed env, PATH, then the usual locations.
 find_grass() {
     GRASS_EXE=""
     local name dir candidate
     local dirs=()
+
+    if [ -n "${MLPREP_GRASS_EXE:-}" ] && [ -x "$MLPREP_GRASS_EXE" ]; then
+        GRASS_EXE="$MLPREP_GRASS_EXE"
+        return 0
+    fi
 
     for name in "${GRASS_NAMES[@]}"; do
         [ -x "$GRASS_ENV_DIR/bin/$name" ] && { GRASS_EXE="$GRASS_ENV_DIR/bin/$name"; return 0; }

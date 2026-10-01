@@ -424,7 +424,9 @@ def tool_environment(base=None):
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
 
-    grass = find_exe("grass", "grass")
+    # The same lookup as the setup gate, so the engine and the installer
+    # scripts use the very GRASS the gate approved (including QGIS's own copy).
+    grass = find_grass()
     if grass:
         env[ENV_GRASS_EXE] = grass
 
@@ -655,7 +657,12 @@ def _ask_grass_for_module(module, grass_exe=None):
     )
     try:
         result = subprocess.run(
-            [grass_exe, "--tmp-project", "EPSG:4326", "--exec", "python", "-c", probe],
+            # --tmp-location, not --tmp-project: the latter is GRASS 8.4+ only,
+            # and Ubuntu 24.04 still ships 8.3 (where it exits 2).
+            # python3 off Windows: Ubuntu and macOS have no bare `python`.
+            # Same choice as toolpath.GrassPython() in the Go engine.
+            [grass_exe, "--tmp-location", "EPSG:4326", "--exec",
+             "python" if IS_WINDOWS else "python3", "-c", probe],
             capture_output=True, timeout=120, env=tool_environment(),
             **subprocess_kwargs()
         )
