@@ -1,0 +1,30 @@
+# EIL environment (~/.mlprep_envs/venv).
+# Runs: the Go slope-unit engine's embedded scripts, pinn_inference.py,
+# headless_model.py.  QGIS site-packages are NOT on this venv's path, so every
+# import must be declared here -- transitive availability is not a guarantee
+# (geopandas 1.x dropped fiona; contextily is the only reason rasterio used to
+# arrive at all).  tests/test_worker_requirements.py enforces this.
+
+# Geospatial I/O
+rasterio
+geopandas
+pyogrio
+shapely
+rasterstats
+
+# Numerics
+numpy
+scipy
+pandas
+
+# Modelling
+tensorflow
+scikit-learn
+keras-tuner
+imbalanced-learn
+scikeras
+
+# Plotting / basemaps
+matplotlib
+seaborn
+contextily

@@ -1,0 +1,38 @@
+# Build the Step 4 MPI engine for linux/amd64.
+# Bookworm is deliberately old: glibc 2.36 keeps the binary usable on older
+# distributions than the build host.
+FROM debian:bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake libgdal-dev libopenmpi-dev patchelf \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build build-linux --parallel
+
+# Bundle GDAL and its dependency closure, but deliberately NOT:
+#
+#   libmpi / libmpi_cxx  — the plugin always launches this binary through the
+#                          HOST's mpiexec (the Dependencies panel requires it),
+#                          and a bundled libmpi that disagrees with the host
+#                          launcher fails inside opal_init at startup.
+#   libstdc++ / libgcc_s — these are coupled to the build image's glibc, so
+#                          bundling them from a newer base *breaks* older hosts
+#                          ("GLIBC_2.36 not found") rather than helping.
+#   libc family          — always supplied by the host.
+#
+# Every bundled library also gets $ORIGIN, not just the executable: a library
+# loaded out of lib/ resolves its OWN dependencies through its own rpath.
+RUN mkdir -p /out/lib \
+ && cp build-linux/step4_deposition_zone_mpi /out/ \
+ && ldd /out/step4_deposition_zone_mpi \
+      | awk '/=> \//{print $3}' \
+      | grep -vE '/(libc|libm|libpthread|libdl|librt|ld-linux)[.-]' \
+      | grep -vE '/(libmpi|libmpi_cxx|libstdc\+\+|libgcc_s|libopen-pal|libopen-rte)[.-]' \
+      | xargs -I{} cp -Lv {} /out/lib/ \
+ && patchelf --set-rpath '$ORIGIN/lib' /out/step4_deposition_zone_mpi \
+ && for lib in /out/lib/*.so*; do patchelf --set-rpath '$ORIGIN' "$lib"; done \
+ && echo "--- bundled: $(ls /out/lib | wc -l) libraries ---"

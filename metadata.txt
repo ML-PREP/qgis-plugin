@@ -1,0 +1,26 @@
+[general]
+name=MLPREP Detection V4
+qgisMinimumVersion=3.22
+qgisMaximumVersion=3.99
+description=A unified suite for Landslide Detection and Earthquake-Induced Landslide (EIL) Hazard mapping.
+version=1.0
+author=MLPREP
+email=mlprep@carsu.edu.ph
+
+about=Merges Landslide Detection and Earthquake-Induced Landslide (EIL) PINN
+    hazard mapping into a single toolbar. The EIL model is a Physics-Informed
+    Neural Network embedding Newmark displacement analysis directly in the
+    network architecture. Requires GRASS GIS, GDAL, TauDEM and an MPI runtime;
+    the plugin's Dependencies tab reports what is missing and where to get it.
+
+tracker=https://github.com/gio-g61io0/ml-prep-pinn/issues
+repository=https://github.com/gio-g61io0/ml-prep-pinn
+homepage=https://github.com/gio-g61io0/ml-prep-pinn
+
+category=Analysis
+icon=mlprep-icon.jpg
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+
+tags=landslide,hazard,earthquake,machine learning,neural network,geomorphology,slope units

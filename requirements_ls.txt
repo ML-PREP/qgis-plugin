@@ -1,0 +1,9 @@
+# Landslide-detection environment (~/.mlprep_envs/ls_detect_env).
+# Runs: landslide_worker.py.  See requirements_eil.txt for why every import is
+# declared explicitly.  tests/test_worker_requirements.py enforces this.
+numpy
+rasterio
+geopandas
+pyogrio
+shapely
+tensorflow

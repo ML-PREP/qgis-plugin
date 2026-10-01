@@ -1,0 +1,93 @@
+"""Offline installation of the GRASS addons the plugin needs.
+
+`g.extension extension=r.slopeunits` is the normal route, but on Windows it
+downloads a precompiled archive from wingrass.fsv.cvut.cz, which fails on any
+network that cannot resolve that host:
+
+    ERROR: Cannot open URL <http://wingrass.fsv.cvut.cz/grass84/addons/
+    grass-8.4.2/r.slopeunits.zip>: <urlopen error [Errno 11001] getaddrinfo failed>
+
+All four r.slopeunits modules are pure Python, so a copy into the GRASS addon
+directory is a complete installation. The modules ship in vendor/grass_addons/,
+which removes the network dependency entirely.
+"""
+
+import os
+import shutil
+import stat
+
+from . import platform_utils as pu
+
+VENDOR_SUBDIR = os.path.join("vendor", "grass_addons")
+
+# GRASS launches script addons on Windows through a .bat shim next to them.
+_WINDOWS_SHIM = '@"%GRASS_PYTHON%" "%~dp0..\\scripts\\{module}.py" %*\r\n'
+
+
+def vendored_dir(plugin_dir, addon="r.slopeunits"):
+    return os.path.join(plugin_dir, VENDOR_SUBDIR, addon)
+
+
+def vendored_modules(plugin_dir, addon="r.slopeunits"):
+    """The .py modules bundled for `addon`, newest listing order."""
+    source = vendored_dir(plugin_dir, addon)
+    if not os.path.isdir(source):
+        return []
+    return sorted(
+        os.path.join(source, name)
+        for name in os.listdir(source)
+        if name.endswith(".py")
+    )
+
+
+def install_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
+    """Copy a bundled addon into the user's GRASS addon directory.
+
+    Returns the list of installed module names. Raises RuntimeError with a
+    usable message rather than leaving a half-installed addon behind.
+    """
+    log = log or (lambda _message: None)
+
+    modules = vendored_modules(plugin_dir, addon)
+    if not modules:
+        raise RuntimeError(
+            f"No bundled copy of {addon} found at:\n"
+            f"  {vendored_dir(plugin_dir, addon)}\n\n"
+            "Reinstall the plugin, or install the addon with:\n"
+            "  g.extension extension=" + addon
+        )
+
+    addons_root = pu.grass_addon_dir()
+    scripts_dir = os.path.join(addons_root, "scripts")
+    bin_dir = os.path.join(addons_root, "bin")
+
+    try:
+        os.makedirs(scripts_dir, exist_ok=True)
+        os.makedirs(bin_dir, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot create the GRASS addon directory:\n  {addons_root}\n\n{exc}"
+        )
+
+    installed = []
+    for source in modules:
+        module = os.path.splitext(os.path.basename(source))[0]
+        target = os.path.join(scripts_dir, os.path.basename(source))
+
+        try:
+            shutil.copy2(source, target)
+            if not pu.IS_WINDOWS:
+                # GRASS execs script addons directly on POSIX.
+                current = os.stat(target).st_mode
+                os.chmod(target, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            else:
+                shim = os.path.join(bin_dir, module + ".bat")
+                with open(shim, "w", encoding="ascii", newline="") as handle:
+                    handle.write(_WINDOWS_SHIM.format(module=module))
+        except OSError as exc:
+            raise RuntimeError(f"Could not install {module}:\n{exc}")
+
+        log(f"   > Installed {module}")
+        installed.append(module)
+
+    return installed

@@ -1,0 +1,29 @@
+# Study-area boundary data (large, redistributed separately)
+roi_data/*
+
+# Managed environments are created at runtime under ~/.mlprep_envs.
+# A virtualenv inside the plugin is machine-specific and must never ship.
+venv/
+ls_detect_env/
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Release staging (regenerate with ./build_release.sh)
+dist/
+
+# Compiled engines: 323 MB and fully regenerable.
+# Rebuild with ./build_binaries.sh (Go) and ./build_native.sh all (C++/MPI).
+bin/
+
+# Native build trees
+ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build-*/
+ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_mac/
+
+# macOS metadata
+.DS_Store
+
+# Native build artefacts (regenerate with ./build_binaries.sh)
+ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_*/CMakeFiles/
