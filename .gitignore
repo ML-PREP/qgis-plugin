@@ -27,3 +27,10 @@ ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_mac/
 
 # Native build artefacts (regenerate with ./build_binaries.sh)
 ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_*/CMakeFiles/
+
+# SSH keys must never be committed or shipped. Keep deploy keys in ~/.ssh.
+mlprep-carsu
+mlprep-carsu.pub
+id_rsa*
+id_ed25519*
+*.pem
