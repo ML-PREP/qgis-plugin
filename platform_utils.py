@@ -428,6 +428,11 @@ def tool_environment(base=None):
     if grass:
         env[ENV_GRASS_EXE] = grass
 
+    # Every GRASS the plugin starts must search the directory the plugin
+    # installs addons into. GRASS's own default differs on macOS
+    # (~/Library/GRASS/<ver>/Addons), where r.slopeunits was then "not found".
+    env["GRASS_ADDON_BASE"] = grass_addon_dir()
+
     gdal_dir = gdal_bin_dir()
     if gdal_dir:
         env[ENV_GDAL_BIN] = gdal_dir

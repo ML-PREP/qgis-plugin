@@ -190,3 +190,22 @@ class TestShellInstaller:
 
         # Assert
         assert not (scripts / "r.slopeunits.create.py").exists()
+
+
+class TestGrassAddonBase:
+    def test_child_processes_search_the_plugin_addon_dir(self, tmp_path, monkeypatch):
+        # Regression: on macOS GRASS defaults to ~/Library/GRASS/<ver>/Addons,
+        # so r.slopeunits installed by the plugin was "not found" at run time.
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+
+        env = pu.tool_environment(base={})
+
+        assert env["GRASS_ADDON_BASE"] == str(tmp_path)
+
+    def test_overrides_an_inherited_addon_base(self, tmp_path, monkeypatch):
+        # The plugin's checks and installs use grass_addon_dir(); GRASS must agree.
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+
+        env = pu.tool_environment(base={"GRASS_ADDON_BASE": "/elsewhere"})
+
+        assert env["GRASS_ADDON_BASE"] == str(tmp_path)
