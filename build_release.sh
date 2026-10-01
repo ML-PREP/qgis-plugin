@@ -143,7 +143,8 @@ if [ -n "$leaked" ]; then
 fi
 
 # Catch credentials by content, not just by name: a renamed key still leaks.
-key_file=$(grep -rlI -e "-----BEGIN [A-Z ]*PRIVATE KEY-----" "$STAGE" 2>/dev/null | head -1)
+# grep exits 1 on no match, which set -o pipefail would turn into a silent abort.
+key_file=$(grep -rlI -e "-----BEGIN [A-Z ]*PRIVATE KEY-----" "$STAGE" 2>/dev/null | head -1 || true)
 if [ -n "$key_file" ]; then
   echo "error: private key found in the package: $key_file" >&2
   exit 1
