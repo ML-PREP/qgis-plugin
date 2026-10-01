@@ -34,6 +34,11 @@ EXE_SUFFIX = ".exe" if IS_WINDOWS else ""
 
 SETTINGS_PREFIX = "mlprep/exe"
 
+# Root of everything the plugin installs for itself: the two virtualenvs and,
+# on macOS, the conda-forge GRASS that scripts/install_grass.sh creates.
+ENVS_DIR = os.path.join(os.path.expanduser("~"), ".mlprep_envs")
+GRASS_ENV_DIR = os.path.join(ENVS_DIR, "grass")
+
 # Environment variables handed to the bundled Go engine so it reuses the
 # executables this module already resolved instead of re-deriving them.
 ENV_GRASS_EXE = "MLPREP_GRASS_EXE"
@@ -63,6 +68,8 @@ _SEARCH_DIRS = {
         r"C:\Program Files\QGIS *\apps\grass\grass*\bin",
     ],
     "darwin": [
+        # Created by scripts/install_grass.sh (Homebrew micromamba + conda-forge).
+        os.path.join(GRASS_ENV_DIR, "bin"),
         "/opt/homebrew/bin",
         "/usr/local/bin",
         "/usr/local/taudem",
@@ -206,8 +213,6 @@ def gdal_bin_dir():
 # ---------------------------------------------------------------------------
 # Managed virtualenvs — single source of truth
 # ---------------------------------------------------------------------------
-
-ENVS_DIR = os.path.join(os.path.expanduser("~"), ".mlprep_envs")
 
 
 def base_python():
@@ -464,9 +469,11 @@ _HINTS = {
         "linux": "Build TauDEM from source, or install your distribution's taudem package.",
     },
     "grass": {
-        "win32": "Install GRASS GIS 8.x (standalone installer or OSGeo4W).",
-        "darwin": "Install GRASS GIS 8.x into /Applications.",
-        "linux": "sudo apt install grass   (or your distribution's equivalent)",
+        "win32": r"Run scripts\install_grass_windows.bat, or install GRASS GIS 8.x "
+                 "(standalone installer or OSGeo4W).",
+        "darwin": "Run scripts/install_grass.sh (installs GRASS through Homebrew "
+                  "micromamba into ~/.mlprep_envs/grass).",
+        "linux": "Run scripts/install_grass.sh, or: sudo apt install grass",
     },
     "gdal": {
         "win32": "Normally supplied by QGIS/OSGeo4W. Reinstall QGIS if it is absent.",
@@ -564,6 +571,32 @@ def grass_addon_dir():
         if appdata:
             return os.path.join(appdata, "GRASS8", "addons")
     return os.path.join(os.path.expanduser("~"), ".grass8", "addons")
+
+
+# One installer per platform family, both under scripts/. Each installs GRASS
+# when missing and then the r.slopeunits addon, and exits 0 only when both are
+# present -- the GRASS setup dialog runs them and re-checks afterwards.
+GRASS_INSTALLER_DIR = "scripts"
+GRASS_ADDON_ONLY_FLAG = "/addon-only" if IS_WINDOWS else "--addon-only"
+
+
+def grass_installer_script_name():
+    return "install_grass_windows.bat" if IS_WINDOWS else "install_grass.sh"
+
+
+def grass_installer_command(plugin_dir):
+    """`[program, *args]` that runs this platform's GRASS installer.
+
+    Returns None when the script is missing from the plugin directory, so the
+    caller can say so instead of failing to launch it.
+    """
+    script = os.path.join(plugin_dir, GRASS_INSTALLER_DIR, grass_installer_script_name())
+    if not os.path.isfile(script):
+        return None
+
+    # Run through the interpreter explicitly: a zip-extracted plugin loses the
+    # executable bit, and a .bat is not directly executable without cmd.
+    return ["cmd.exe", "/c", script] if IS_WINDOWS else ["/bin/bash", script]
 
 
 def grass_addon_installed(module, grass_exe=None):
@@ -674,7 +707,7 @@ def check_dependencies(plugin_dir=None):
         spec = ToolSpec(
             "grass_addon", module, f"GRASS addon: {module}", FEATURE_EIL,
             "Install with:  g.extension extension=r.slopeunits\n"
-            "On Windows use scripts/install_grass_windows.bat /addon-only",
+            f"Or run:  {grass_installer_script_name()} {GRASS_ADDON_ONLY_FLAG}",
         )
         statuses.append(ToolStatus(spec, grass_addon_installed(module)))
 

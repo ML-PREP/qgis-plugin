@@ -749,8 +749,8 @@ class SetupWorker(QThread):
                 )
                 env_setup.mark_provisioned(venv_dir, requirements_path)
 
-            # GRASS presence is guaranteed by the gate in
-            # check_and_setup_environments before this worker starts.
+            # The gate in check_and_setup_environments already ensured GRASS and
+            # the addon; this offline copy only repairs an addon removed since.
             self.progress.emit("Installing GRASS addon r.slopeunits...")
             grass_addons.ensure_bundled_addon(self.base_dir, log=self.progress.emit)
 
@@ -969,8 +969,9 @@ class UnifiedPluginDialog(QMainWindow):
             combobox.setCurrentIndex(combobox.count() - 1)
 
     def check_and_setup_environments(self, force=False):
-        # Setup installs an addon into GRASS, so nothing proceeds without it.
-        if not self._ensure_grass_installed():
+        # The EIL stage runs r.slopeunits inside GRASS: nothing proceeds until
+        # both are installed.
+        if not self._ensure_grass_ready():
             return
 
         # A present interpreter is not evidence of a usable environment:
@@ -981,12 +982,7 @@ class UnifiedPluginDialog(QMainWindow):
             pu.venv_is_provisioned(name, os.path.join(self._base_dir, requirements))
             for name, requirements in pu.ENV_REQUIREMENTS.items()
         )
-        if venvs_ready and grass_addons.bundled_addon_installed() and not force:
-            return
-
-        # Only the addon missing: an offline file copy, nothing to confirm.
-        if venvs_ready:
-            self._start_setup()
+        if venvs_ready and not force:
             return
 
         reply = QMessageBox.question(
@@ -1004,12 +1000,17 @@ class UnifiedPluginDialog(QMainWindow):
         if reply == QMessageBox.Yes:
             self._start_setup()
 
-    def _ensure_grass_installed(self):
-        """Block on a modal prompt until GRASS is found; close if declined."""
-        if pu.find_grass():
+    def _ensure_grass_ready(self):
+        """Block on a modal prompt until GRASS and r.slopeunits are found.
+
+        The prompt installs them via scripts/install_grass.sh (or the Windows
+        .bat). Declining closes the plugin.
+        """
+        grass, addon_ready = grass_addons.grass_setup_status()
+        if grass and addon_ready:
             return True
 
-        gate = GrassRequiredDialog(self)
+        gate = GrassRequiredDialog(self._base_dir, self)
         accepted = gate.exec_() == QtWidgets.QDialog.Accepted
         self.dependency_panel.refresh()
         if not accepted:
