@@ -285,6 +285,24 @@ class TestWindowsBatchScript:
     def test_prefers_plugin_resolved_grass(self, bat):
         assert "MLPREP_GRASS_EXE" in bat
 
+    def test_every_call_and_goto_target_exists(self, bat):
+        # A bad rewrite once deleted the script's main body; labels it still
+        # jumped to (:addon_stage, :report) vanished with it.
+        import re
+        labels = set(re.findall(r"^:(\w+)", bat, re.MULTILINE))
+        targets = set(re.findall(r"(?:call|goto)\s+:(\w+)", bat, re.IGNORECASE))
+        assert targets - {"eof"} <= labels, targets - labels
+
+    def test_main_flow_is_intact(self, bat):
+        for step in ("curl.exe -L", '"%SETUP_PATH%" /S', ":addon_stage",
+                     "g.extension extension=%ADDON%", ":manual_addon_install",
+                     ":report", ":fail", ":usage"):
+            assert step in bat, f"missing {step!r}"
+
+    def test_main_flow_precedes_subroutines(self, bat):
+        # The body must run before control reaches the subroutine labels.
+        assert bat.index(":addon_stage") < bat.index("\r\n:find_grass\r\n")
+
     def test_addon_dir_follows_grass_addon_base(self, bat):
         # Only the fallback default may name the APPDATA path directly.
         assert bat.count("%APPDATA%\\GRASS8\\addons") == 1
