@@ -1,4 +1,4 @@
-#merged_wrapper.py
+# merged_wrapper.py
 
 import os
 import sys
@@ -18,17 +18,34 @@ import csv
 from qgis.PyQt import QtWidgets, QtCore, QtGui
 from qgis.PyQt.QtCore import Qt, QThread, pyqtSignal, QVariant, QSize, QEvent
 from qgis.PyQt.QtWidgets import (
-    QMainWindow, QTabWidget, QStackedWidget, QMessageBox, 
-    QProgressDialog, QFileDialog, QGraphicsScene, QTableWidgetItem
+    QMainWindow,
+    QTabWidget,
+    QStackedWidget,
+    QMessageBox,
+    QProgressDialog,
+    QFileDialog,
+    QGraphicsScene,
+    QTableWidgetItem,
 )
 from qgis.PyQt.QtGui import QColor, QPixmap, QPen, QBrush, QImage
 
 from qgis.core import (
-    QgsVectorLayer, QgsRasterLayer, QgsProject, QgsMapSettings,
-    QgsMapRendererParallelJob, QgsMapRendererSequentialJob, QgsCoordinateReferenceSystem,
-    QgsFeatureRequest, QgsGeometry, QgsPointXY, QgsField,
-    QgsGraduatedSymbolRenderer, QgsRendererRange, QgsSymbol, QgsSingleSymbolRenderer,
-    QgsMapLayerType
+    QgsVectorLayer,
+    QgsRasterLayer,
+    QgsProject,
+    QgsMapSettings,
+    QgsMapRendererParallelJob,
+    QgsMapRendererSequentialJob,
+    QgsCoordinateReferenceSystem,
+    QgsFeatureRequest,
+    QgsGeometry,
+    QgsPointXY,
+    QgsField,
+    QgsGraduatedSymbolRenderer,
+    QgsRendererRange,
+    QgsSymbol,
+    QgsSingleSymbolRenderer,
+    QgsMapLayerType,
 )
 
 # Import BOTH UI files
@@ -105,9 +122,12 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
     def _locate_taudem(self):
         """Directory holding the TauDEM binaries, or None if not installed."""
         pitremove = pu.find_exe(
-            "pitremove", "taudem",
-            extra_dirs=[pu.venv_bin_dir("venv"),
-                        os.path.expanduser("~/miniconda3/bin")],
+            "pitremove",
+            "taudem",
+            extra_dirs=[
+                pu.venv_bin_dir("venv"),
+                os.path.expanduser("~/miniconda3/bin"),
+            ],
         )
         return os.path.dirname(pitremove) if pitremove else None
 
@@ -144,8 +164,13 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
 
         self.log.emit("   > Generating Baseline Alpha Raster (Step 0 Logic)...")
 
-        UPPER_BOUNDS = np.asarray([10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45], dtype=np.float64)
-        ALPHA_VALUES = np.asarray([np.nan, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 22.0, 25.0, 28.0, 29.0, 30.0], dtype=np.float32)
+        UPPER_BOUNDS = np.asarray(
+            [10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45], dtype=np.float64
+        )
+        ALPHA_VALUES = np.asarray(
+            [np.nan, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 22.0, 25.0, 28.0, 29.0, 30.0],
+            dtype=np.float32,
+        )
 
         slope_drop, profile = raster_io.read_band(slope_tif)
 
@@ -155,11 +180,15 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
         valid_mask = (slope_drop >= 0) & (slope_drop != profile.nodata)
         alpha = np.full(slope_drop.shape, -9999.0, dtype=np.float32)
 
-        valid_classes = np.searchsorted(UPPER_BOUNDS, slope_degrees[valid_mask], side="right")
+        valid_classes = np.searchsorted(
+            UPPER_BOUNDS, slope_degrees[valid_mask], side="right"
+        )
         positive_alpha = np.isfinite(ALPHA_VALUES[valid_classes])
 
         valid_rows, valid_cols = np.nonzero(valid_mask)
-        alpha[valid_rows[positive_alpha], valid_cols[positive_alpha]] = ALPHA_VALUES[valid_classes[positive_alpha]]
+        alpha[valid_rows[positive_alpha], valid_cols[positive_alpha]] = ALPHA_VALUES[
+            valid_classes[positive_alpha]
+        ]
 
         raster_io.write_band(alpha_tif, alpha, profile)
 
@@ -167,7 +196,9 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
         """Thresholds the cleaned AI DFI output to create the binary Source mask with dynamic fallback."""
         import numpy as np
 
-        self.log.emit(f"   > Generating Binary Source Raster (Target DFI > {threshold})...")
+        self.log.emit(
+            f"   > Generating Binary Source Raster (Target DFI > {threshold})..."
+        )
         dfi, profile = raster_io.read_band(clean_dfi_tif)
         nodata = profile.nodata
         source = np.full(dfi.shape, -9999.0, dtype=np.float32)
@@ -185,7 +216,9 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
 
         # Safety net: If 0.5 still yields absolutely nothing, use top 5%
         if source_count == 0:
-            self.log.emit(f"   > [Notice] No cells found > {threshold}. Falling back to dynamic 95th percentile...")
+            self.log.emit(
+                f"   > [Notice] No cells found > {threshold}. Falling back to dynamic 95th percentile..."
+            )
             dynamic_threshold = float(np.percentile(valid_dfi, 95))
 
             if dynamic_threshold <= 0.0:
@@ -215,7 +248,7 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
         import subprocess
         import sys
         import json
-        
+
         try:
             if not self.taudem_dir:
                 self.error.emit(
@@ -239,23 +272,35 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
             alpha = os.path.join(self.output_dir, "alpha.tif")
             source = os.path.join(self.output_dir, "source.tif")
             dfi_clean = os.path.join(self.output_dir, "dfi_clean.tif")
-            output_dep = os.path.join(self.output_dir, "step4_pure_depositional_mask.tif")
-            
+            output_dep = os.path.join(
+                self.output_dir, "step4_pure_depositional_mask.tif"
+            )
+
             mpi_base = [self.mpi_exe, "-n", str(self.cores)]
-            
+
             clean_env = pu.tool_environment()
 
             # 1. TauDEM Pre-processing
             self.log.emit("\n[TauDEM] Step 1/2: Pit-filling DEM...")
-            subprocess.run(mpi_base + [self._taudem("pitremove"), "-z", self.dem_path, "-fel", fel],
-                           check=True, capture_output=True, env=clean_env,
-                           **pu.subprocess_kwargs())
+            subprocess.run(
+                mpi_base
+                + [self._taudem("pitremove"), "-z", self.dem_path, "-fel", fel],
+                check=True,
+                capture_output=True,
+                env=clean_env,
+                **pu.subprocess_kwargs(),
+            )
             self.progress.emit(10)
 
             self.log.emit("\n[TauDEM] Step 2/2: Computing Flow Direction & Slope...")
-            subprocess.run(mpi_base + [self._taudem("dinfflowdir"), "-fel", fel, "-ang", ang, "-slp", slp],
-                           check=True, capture_output=True, env=clean_env,
-                           **pu.subprocess_kwargs())
+            subprocess.run(
+                mpi_base
+                + [self._taudem("dinfflowdir"), "-fel", fel, "-ang", ang, "-slp", slp],
+                check=True,
+                capture_output=True,
+                env=clean_env,
+                **pu.subprocess_kwargs(),
+            )
             self.progress.emit(25)
 
             # 2. Derive Mandatory Step 4 Inputs
@@ -264,7 +309,7 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
 
             self._generate_alpha_raster(slp, alpha)
             self.progress.emit(35)
-            
+
             # Call with the 0.5 threshold
             self._generate_source_raster(dfi_clean, source, threshold=0.50)
             self.progress.emit(45)
@@ -279,8 +324,12 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
             cpp_exe = pu.bundled_binary(plugin_dir, "step4_deposition_zone_mpi")
 
             if not cpp_exe:
-                expected = os.path.join(plugin_dir, "bin", pu.platform_tag(),
-                                        "step4_deposition_zone_mpi" + pu.EXE_SUFFIX)
+                expected = os.path.join(
+                    plugin_dir,
+                    "bin",
+                    pu.platform_tag(),
+                    "step4_deposition_zone_mpi" + pu.EXE_SUFFIX,
+                )
                 self.error.emit(
                     f"Depositional routing engine not available for this "
                     f"platform ({pu.platform_tag()}).\n\nExpected:\n{expected}\n\n"
@@ -292,27 +341,48 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
             # 4. Execute C++/MPI Routing Engine Directly
             self.log.emit("\n--- INITIATING C++/MPI DEPOSITIONAL ROUTING ---")
             cmd = [
-                self.mpi_exe, "-n", str(self.cores),
+                self.mpi_exe,
+                "-n",
+                str(self.cores),
                 cpp_exe,
-                "--fel", fel,
-                "--ang", ang,
-                "--source", source,
-                "--dfi", dfi_clean,
-                "--alpha", alpha,
-                "--out-alpha", os.path.join(self.output_dir, "step4_dynamic_alpha.tif"),
-                "--out-beta", os.path.join(self.output_dir, "step4_beta_angle.tif"),
-                "--out-dfs", os.path.join(self.output_dir, "step4_dfs.tif"),
-                "--out-mask", os.path.join(self.output_dir, "step4_runout_mask.tif"),
-                "--out-deposition", output_dep,
-                "--threshold", "0.2",
-                "--dfi-mid", "0.69",
-                "--alpha-gain-per-meter", "0.03333"
+                "--fel",
+                fel,
+                "--ang",
+                ang,
+                "--source",
+                source,
+                "--dfi",
+                dfi_clean,
+                "--alpha",
+                alpha,
+                "--out-alpha",
+                os.path.join(self.output_dir, "step4_dynamic_alpha.tif"),
+                "--out-beta",
+                os.path.join(self.output_dir, "step4_beta_angle.tif"),
+                "--out-dfs",
+                os.path.join(self.output_dir, "step4_dfs.tif"),
+                "--out-mask",
+                os.path.join(self.output_dir, "step4_runout_mask.tif"),
+                "--out-deposition",
+                output_dep,
+                "--threshold",
+                "0.2",
+                "--dfi-mid",
+                "0.69",
+                "--alpha-gain-per-meter",
+                "0.03333",
             ]
-            
-            process = self._track(subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                env=clean_env, **pu.subprocess_kwargs()))
-            for line in iter(process.stdout.readline, ''):
+
+            process = self._track(
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    env=clean_env,
+                    **pu.subprocess_kwargs(),
+                )
+            )
+            for line in iter(process.stdout.readline, ""):
                 clean = line.strip()
                 if clean:
                     self.log.emit(f"   > MPI: {clean}")
@@ -323,7 +393,9 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
                 return
 
             if process.returncode != 0:
-                self.error.emit(f"C++/MPI Step 4 failed with exit code {process.returncode}.")
+                self.error.emit(
+                    f"C++/MPI Step 4 failed with exit code {process.returncode}."
+                )
                 return
 
             self.progress.emit(100)
@@ -334,30 +406,44 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
             if self.is_cancelled:
                 return
             import traceback
-            self.error.emit(f"Depositional Worker Error:\n{str(e)}\n{traceback.format_exc()}")
+
+            self.error.emit(
+                f"Depositional Worker Error:\n{str(e)}\n{traceback.format_exc()}"
+            )
+
 
 class GoParallelZonalWorker(CancellableProcessMixin, QThread):
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
-    finished = pyqtSignal(str, str) 
+    finished = pyqtSignal(str, str)
     error = pyqtSignal(str)
 
-    def __init__(self, go_project_dir, dem_path, input_raster_folder, output_folder, venv_python, target_crs, total_rasters, params):
+    def __init__(
+        self,
+        go_project_dir,
+        dem_path,
+        input_raster_folder,
+        output_folder,
+        venv_python,
+        target_crs,
+        total_rasters,
+        params,
+    ):
         super().__init__()
         self._init_cancellation()
-        self.go_project_dir = go_project_dir 
+        self.go_project_dir = go_project_dir
         self.dem_path = dem_path
         self.input_raster_folder = input_raster_folder
         self.output_folder = output_folder
         self.venv_python = venv_python
         self.target_crs = target_crs
-        self.total_rasters = total_rasters 
+        self.total_rasters = total_rasters
         self.params = params
 
     def run(self):
         try:
             self.log.emit("\n--- PASSING BATON TO GO ENGINE ---")
-            
+
             # Prefer the cross-compiled engine shipped under bin/<goos>_<goarch>/.
             # Falling back to "go run ." keeps the source tree usable for
             # development; end users never have a Go toolchain installed.
@@ -369,8 +455,9 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
             else:
                 go_exe = pu.find_exe("go", "go")
                 if not go_exe:
-                    expected = os.path.join(plugin_dir, "bin", pu.platform_tag(),
-                                            "zonal" + pu.EXE_SUFFIX)
+                    expected = os.path.join(
+                        plugin_dir, "bin", pu.platform_tag(), "zonal" + pu.EXE_SUFFIX
+                    )
                     self.error.emit(
                         f"Zonal engine not available for this platform "
                         f"({pu.platform_tag()}).\n\nExpected:\n{expected}\n\n"
@@ -378,25 +465,40 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
                         "build it from source."
                     )
                     return
-                self.log.emit("   > No bundled engine for this platform; "
-                              "building from source with the Go toolchain.")
+                self.log.emit(
+                    "   > No bundled engine for this platform; "
+                    "building from source with the Go toolchain."
+                )
                 cmd = [go_exe, "run", "."]
 
             cmd += [
-                "-dem", self.dem_path, 
-                "-rasterFolder", self.input_raster_folder, 
-                "-outputDir", self.output_folder,
-                "-pythonExe", self.venv_python,  
-                "-targetCRS", self.target_crs,
-                "-areaMin", str(self.params.get('areaMin', 5000)),
+                "-dem",
+                self.dem_path,
+                "-rasterFolder",
+                self.input_raster_folder,
+                "-outputDir",
+                self.output_folder,
+                "-pythonExe",
+                self.venv_python,
+                "-targetCRS",
+                self.target_crs,
+                "-areaMin",
+                str(self.params.get("areaMin", 5000)),
                 # "-areaMax", str(self.params.get('areaMax', 5000000)),
-                "-thresh", str(self.params.get('thresh', 5000)),
-                "-cvMin", str(self.params.get('cvMin', 0.15)),
-                "-rf", str(self.params.get('rf', 10)),
-                "-maxIter", str(self.params.get('maxIter', 10)),
-                "-tileCols", str(self.params.get('tileCols', 3)),
-                "-tileRows", str(self.params.get('tileRows', 3)),
-                "-tileOverlap", str(self.params.get('tileOverlap', 50))
+                "-thresh",
+                str(self.params.get("thresh", 5000)),
+                "-cvMin",
+                str(self.params.get("cvMin", 0.15)),
+                "-rf",
+                str(self.params.get("rf", 10)),
+                "-maxIter",
+                str(self.params.get("maxIter", 10)),
+                "-tileCols",
+                str(self.params.get("tileCols", 3)),
+                "-tileRows",
+                str(self.params.get("tileRows", 3)),
+                "-tileOverlap",
+                str(self.params.get("tileOverlap", 50)),
             ]
 
             self.log.emit(f"Executing: {' '.join(cmd)}")
@@ -405,25 +507,27 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
             # the executables already resolved here instead of re-deriving them.
             env = pu.tool_environment()
 
-            process = self._track(subprocess.Popen(
-                cmd,
-                cwd=self.go_project_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=env,
-                **pu.subprocess_kwargs()
-            ))
+            process = self._track(
+                subprocess.Popen(
+                    cmd,
+                    cwd=self.go_project_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    **pu.subprocess_kwargs(),
+                )
+            )
 
             # --- PROGRESS BAR MATH FOR BOTH PHASES ---
-            current_progress = 0.0  
+            current_progress = 0.0
             # Phase 1 gets 50%, Phase 2 gets 45%, Merge gets 5%
-            zonal_step = 45.0 / max(1, self.total_rasters) 
+            zonal_step = 45.0 / max(1, self.total_rasters)
 
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 clean_line = line.strip()
                 if clean_line:
                     self.log.emit(f"   > GO: {clean_line}")
-                    
+
                     # Track Phase 1 Progress
                     if "[Phase 1]" in clean_line and "Merging Tiles" in clean_line:
                         current_progress = 40.0
@@ -431,12 +535,12 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
                     elif "[Phase 1]" in clean_line and "Polygonizing" in clean_line:
                         current_progress = 50.0
                         self.progress.emit(int(current_progress))
-                    
+
                     # Track Phase 2 Progress
                     elif "[RASTER_DONE]" in clean_line:
                         current_progress += zonal_step
-                        self.progress.emit(int(min(95, current_progress))) 
-                    
+                        self.progress.emit(int(min(95, current_progress)))
+
                     elif "[MERGE_DONE]" in clean_line:
                         self.progress.emit(100)
 
@@ -448,23 +552,29 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
 
             if process.returncode == 0:
                 self.log.emit("--- GO PARALLEL PIPELINE COMPLETE ---")
-                self.progress.emit(100) 
+                self.progress.emit(100)
                 self.finished.emit(self.output_folder, "success")
             else:
-                self.error.emit(f"Go engine crashed with exit code {process.returncode}")
+                self.error.emit(
+                    f"Go engine crashed with exit code {process.returncode}"
+                )
 
         except Exception as e:
             if self.is_cancelled:
                 return
             import traceback
+
             self.error.emit(f"Go Subprocess Error:\n{str(e)}\n{traceback.format_exc()}")
+
 
 class PINNPredictionWorker(CancellableProcessMixin, QThread):
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
-    finished = pyqtSignal(object, str)  
+    finished = pyqtSignal(object, str)
 
-    def __init__(self, python_exe, script_path, input_gpkg, model_path, output_gpkg, dem_path):
+    def __init__(
+        self, python_exe, script_path, input_gpkg, model_path, output_gpkg, dem_path
+    ):
         super().__init__()
         self._init_cancellation()
         self.python_exe = python_exe
@@ -480,19 +590,25 @@ class PINNPredictionWorker(CancellableProcessMixin, QThread):
             self.log.emit("Loading TensorFlow and parsing features...")
 
             cmd = [
-                self.python_exe, self.script_path,
-                self.input_gpkg, self.model_path, self.output_gpkg, self.dem_path
+                self.python_exe,
+                self.script_path,
+                self.input_gpkg,
+                self.model_path,
+                self.output_gpkg,
+                self.dem_path,
             ]
 
-            process = self._track(subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # merge stderr into stdout
-                **pu.subprocess_kwargs()
-            ))
+            process = self._track(
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,  # merge stderr into stdout
+                    **pu.subprocess_kwargs(),
+                )
+            )
 
             last_line = ""
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 clean = line.strip()
                 if not clean:
                     continue
@@ -519,8 +635,10 @@ class PINNPredictionWorker(CancellableProcessMixin, QThread):
                     self.log.emit("✅ AI Predictions generated successfully!")
                     self.finished.emit(response, "success")  # ← pass the whole dict
                 else:
-                    self.log.emit(f"❌ AI Prediction Failed:\n{response.get('message')}")
-                    self.log.emit(response.get('traceback', ''))
+                    self.log.emit(
+                        f"❌ AI Prediction Failed:\n{response.get('message')}"
+                    )
+                    self.log.emit(response.get("traceback", ""))
                     self.finished.emit({}, "error")  # ← empty dict on error
             else:
                 self.log.emit("❌ AI Script produced no final status line.")
@@ -531,6 +649,7 @@ class PINNPredictionWorker(CancellableProcessMixin, QThread):
                 return
             self.log.emit(f"Worker Error: {str(e)}")
             self.finished.emit({}, "error")
+
 
 # ==============================================================================
 # EIL WORKER THREAD
@@ -548,8 +667,9 @@ class PredictionWorker(QThread):
 
     def run(self):
         try:
-            process = subprocess.run(self.cmd, capture_output=True, env=self.env,
-                                     **pu.subprocess_kwargs())
+            process = subprocess.run(
+                self.cmd, capture_output=True, env=self.env, **pu.subprocess_kwargs()
+            )
             if process.returncode != 0:
                 self.error.emit(f"Process Failed:\n{process.stderr}")
                 return
@@ -558,14 +678,15 @@ class PredictionWorker(QThread):
                 return
 
             csv_data = []
-            with open(self.output_csv, 'r', encoding='utf-8') as f:
+            with open(self.output_csv, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     csv_data.append(row)
-            
+
             self.finished.emit({"rows": csv_data}, {})
         except Exception as e:
             self.error.emit(str(e))
+
 
 # ==============================================================================
 # AUTO-SETUP THREAD (First-time installation)
@@ -610,7 +731,9 @@ class SetupWorker(QThread):
 
                 self.progress.emit(f"Preparing {label} environment...")
                 python_exe = env_setup.create_venv(
-                    base_python, venv_dir, env=setup_env,
+                    base_python,
+                    venv_dir,
+                    env=setup_env,
                     log=self.progress.emit,
                 )
 
@@ -619,8 +742,10 @@ class SetupWorker(QThread):
                     "(this may take several minutes)..."
                 )
                 env_setup.install_requirements(
-                    python_exe, requirements_path,
-                    env=setup_env, log=self.progress.emit,
+                    python_exe,
+                    requirements_path,
+                    env=setup_env,
+                    log=self.progress.emit,
                 )
                 env_setup.mark_provisioned(venv_dir, requirements_path)
 
@@ -641,10 +766,10 @@ class UnifiedPluginDialog(QMainWindow):
     def __init__(self, parent=None):
         super(UnifiedPluginDialog, self).__init__(parent)
         self.setWindowTitle("MLPREP Detection Suite")
-        
+
         self.centralwidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.centralwidget)
-        
+
         self.main_layout = QtWidgets.QVBoxLayout(self.centralwidget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
@@ -657,7 +782,7 @@ class UnifiedPluginDialog(QMainWindow):
 
         self.dummy_ls = QMainWindow()
         self.ui_ls.setupUi(self.dummy_ls)
-        
+
         self.dummy_eil = QMainWindow()
         self.ui_eil.setupUi(self.dummy_eil)
 
@@ -701,95 +826,95 @@ class UnifiedPluginDialog(QMainWindow):
 
         self.feature_info = {
             "DEM": {
-                "title": "Digital Elevation Model (DEM)", 
-                "desc": "A 3D computer graphics representation of elevation data to represent terrain. It serves as the foundational layer for deriving slope, wetness, and other topographic metrics."
+                "title": "Digital Elevation Model (DEM)",
+                "desc": "A 3D computer graphics representation of elevation data to represent terrain. It serves as the foundational layer for deriving slope, wetness, and other topographic metrics.",
             },
             "BulkDensity": {
-                "title": "Bulk Density", 
-                "desc": "The weight of soil per unit volume. High bulk density indicates low pore space and high compaction, affecting water movement."
+                "title": "Bulk Density",
+                "desc": "The weight of soil per unit volume. High bulk density indicates low pore space and high compaction, affecting water movement.",
             },
             "Clay": {
-                "title": "Clay Content", 
-                "desc": "Percentage of clay particles in the soil. High clay content can increase cohesion but may significantly reduce drainage."
+                "title": "Clay Content",
+                "desc": "Percentage of clay particles in the soil. High clay content can increase cohesion but may significantly reduce drainage.",
             },
             "Sand": {
-                "title": "Sand Content", 
-                "desc": "Percentage of sand particles. Sand increases drainage and reduces the overall stickiness and cohesion of the soil."
+                "title": "Sand Content",
+                "desc": "Percentage of sand particles. Sand increases drainage and reduces the overall stickiness and cohesion of the soil.",
             },
             "Silt": {
-                "title": "Silt Content", 
-                "desc": "Percentage of silt particles. Silt-heavy soils can be highly susceptible to erosion and landslides when saturated."
+                "title": "Silt Content",
+                "desc": "Percentage of silt particles. Silt-heavy soils can be highly susceptible to erosion and landslides when saturated.",
             },
             "Eastness": {
-                "title": "Eastness", 
-                "desc": "A quantitative terrain parameter used to analyze land-surface orientation (aspect). It measures the degree to which a slope faces east."
+                "title": "Eastness",
+                "desc": "A quantitative terrain parameter used to analyze land-surface orientation (aspect). It measures the degree to which a slope faces east.",
             },
             "Northness": {
-                "title": "Northness", 
-                "desc": "Measures the degree to which a slope faces north. Combined with Eastness, it creates a continuous gradient of slope direction."
+                "title": "Northness",
+                "desc": "Measures the degree to which a slope faces north. Combined with Eastness, it creates a continuous gradient of slope direction.",
             },
             "Slope": {
-                "title": "Slope Angle", 
-                "desc": "The steepness of the terrain, measured in degrees. Steeper slopes generally have a higher risk of landslide occurrence."
+                "title": "Slope Angle",
+                "desc": "The steepness of the terrain, measured in degrees. Steeper slopes generally have a higher risk of landslide occurrence.",
             },
             "PGA": {
-                "title": "Peak Ground Acceleration (PGA)", 
-                "desc": "Measures the maximum ground shaking intensity at a specific location during an earthquake, representing the largest amplitude of acceleration recorded on an accelerogram."
+                "title": "Peak Ground Acceleration (PGA)",
+                "desc": "Measures the maximum ground shaking intensity at a specific location during an earthquake, representing the largest amplitude of acceleration recorded on an accelerogram.",
             },
             "NDVI": {
-                "title": "Normalized Difference Vegetation Index (NDVI)", 
-                "desc": "A remote sensing indicator used to measure and analyze the health and density of green vegetation. Plant roots help stabilize soil."
+                "title": "Normalized Difference Vegetation Index (NDVI)",
+                "desc": "A remote sensing indicator used to measure and analyze the health and density of green vegetation. Plant roots help stabilize soil.",
             },
             "PRC": {
-                "title": "Precipitation", 
-                "desc": "The process where water vapor condenses in the atmosphere to form water droplets that fall to the Earth as rain. Intense rainfall is a primary trigger for landslides."
+                "title": "Precipitation",
+                "desc": "The process where water vapor condenses in the atmosphere to form water droplets that fall to the Earth as rain. Intense rainfall is a primary trigger for landslides.",
             },
             "HorizontalCurve": {
-                "title": "Horizontal Curvature", 
-                "desc": "Also known as Plan Curvature. It describes the curvature of contour lines and influences the convergence or divergence of surface water flow."
+                "title": "Horizontal Curvature",
+                "desc": "Also known as Plan Curvature. It describes the curvature of contour lines and influences the convergence or divergence of surface water flow.",
             },
             "VerticalCurve": {
-                "title": "Vertical Curvature", 
-                "desc": "Also known as Profile Curvature. It measures the rate of change of slope, influencing the acceleration and deceleration of surface flow."
+                "title": "Vertical Curvature",
+                "desc": "Also known as Profile Curvature. It measures the rate of change of slope, influencing the acceleration and deceleration of surface flow.",
             },
             "SoilThickness": {
-                "title": "Soil Thickness", 
-                "desc": "The depth of the soil layer above bedrock. Thicker soils can absorb more water but also provide more mass that can potentially fail and slide."
+                "title": "Soil Thickness",
+                "desc": "The depth of the soil layer above bedrock. Thicker soils can absorb more water but also provide more mass that can potentially fail and slide.",
             },
             "LULC": {
-                "title": "Land Use / Land Cover", 
-                "desc": "Categorizes the physical material at the surface of the earth (e.g., forest, agriculture, urban). Different land covers affect water infiltration and root cohesion."
+                "title": "Land Use / Land Cover",
+                "desc": "Categorizes the physical material at the surface of the earth (e.g., forest, agriculture, urban). Different land covers affect water infiltration and root cohesion.",
             },
             "DistanceToRiver": {
-                "title": "Distance to River", 
-                "desc": "Proximity to the nearest river or stream. Rivers can undercut slopes through lateral erosion, increasing landslide susceptibility."
+                "title": "Distance to River",
+                "desc": "Proximity to the nearest river or stream. Rivers can undercut slopes through lateral erosion, increasing landslide susceptibility.",
             },
             "DistanceToRoad": {
-                "title": "Distance to Road", 
-                "desc": "Proximity to the nearest road network. Road construction often involves cutting into slopes, which can alter drainage and destabilize the terrain."
+                "title": "Distance to Road",
+                "desc": "Proximity to the nearest road network. Road construction often involves cutting into slopes, which can alter drainage and destabilize the terrain.",
             },
             "SoilType": {
-                "title": "Soil Type", 
-                "desc": "Categorical classification of soils based on their physical and chemical properties, which heavily influences internal friction and cohesion."
+                "title": "Soil Type",
+                "desc": "Categorical classification of soils based on their physical and chemical properties, which heavily influences internal friction and cohesion.",
             },
             "TWI": {
-                "title": "Topographic Wetness Index", 
-                "desc": "A steady-state wetness index. It identifies areas where water tends to accumulate based on local topography."
+                "title": "Topographic Wetness Index",
+                "desc": "A steady-state wetness index. It identifies areas where water tends to accumulate based on local topography.",
             },
             "DistanceToFault": {
-                "title": "Distance to Fault", 
-                "desc": "Proximity to tectonic fault lines. Areas closer to active faults experience more structural rock damage and higher earthquake intensities."
+                "title": "Distance to Fault",
+                "desc": "Proximity to tectonic fault lines. Areas closer to active faults experience more structural rock damage and higher earthquake intensities.",
             },
             "ContributingFactor": {
-                "title": "Contributing Factor", 
-                "desc": "Also known as Catchment Area. Represents the total area uphill that drains water into this specific unit, drastically affecting soil saturation."
-            }
+                "title": "Contributing Factor",
+                "desc": "Also known as Catchment Area. Represents the total area uphill that drains water into this specific unit, drastically affecting soil saturation.",
+            },
         }
 
         self.apply_master_stylesheet()
 
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
-        
+
         self.ls_venv_python = pu.venv_python("ls_detect_env")
         self.eil_venv_python = pu.venv_python("venv")
 
@@ -797,10 +922,30 @@ class UnifiedPluginDialog(QMainWindow):
         self.location_index = {}
         roi_dir = os.path.join(self._base_dir, "roi_data")
         self.admin_config = {
-            "Region":       {"path": os.path.join(roi_dir, "phl_admbnda_adm1_psa_namria_20231106.shp"), "col": "ADM1_EN"},
-            "Province":     {"path": os.path.join(roi_dir, "phl_admbnda_adm2_psa_namria_20231106.shp"), "col": "ADM2_EN"},
-            "Municipality": {"path": os.path.join(roi_dir, "phl_admbnda_adm3_psa_namria_20231106.shp"), "col": "ADM3_EN"},
-            "Barangay":     {"path": os.path.join(roi_dir, "phl_admbnda_adm4_psa_namria_20231106.shp"), "col": "ADM4_EN"}
+            "Region": {
+                "path": os.path.join(
+                    roi_dir, "phl_admbnda_adm1_psa_namria_20231106.shp"
+                ),
+                "col": "ADM1_EN",
+            },
+            "Province": {
+                "path": os.path.join(
+                    roi_dir, "phl_admbnda_adm2_psa_namria_20231106.shp"
+                ),
+                "col": "ADM2_EN",
+            },
+            "Municipality": {
+                "path": os.path.join(
+                    roi_dir, "phl_admbnda_adm3_psa_namria_20231106.shp"
+                ),
+                "col": "ADM3_EN",
+            },
+            "Barangay": {
+                "path": os.path.join(
+                    roi_dir, "phl_admbnda_adm4_psa_namria_20231106.shp"
+                ),
+                "col": "ADM4_EN",
+            },
         }
 
         self.MODEL_PATH = os.path.join(self._base_dir, "model", "my_model.keras")
@@ -813,8 +958,10 @@ class UnifiedPluginDialog(QMainWindow):
 
     def browse_local_raster(self, combobox):
         """Opens a file dialog for the user to select a local .tif file."""
-        
-        filename, _ = QFileDialog.getOpenFileName(self, "Select Local Raster", "", "GeoTIFF (*.tif *.tiff)")
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select Local Raster", "", "GeoTIFF (*.tif *.tiff)"
+        )
         if filename:
             # Add the file to the dropdown (Display name, hidden absolute path)
             combobox.addItem(os.path.basename(filename), filename)
@@ -851,7 +998,7 @@ class UnifiedPluginDialog(QMainWindow):
             "This downloads several hundred MB and takes a few minutes. "
             "An internet connection is required.\n\n"
             "Install them now?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -876,7 +1023,9 @@ class UnifiedPluginDialog(QMainWindow):
         self.setup_dialog.setCancelButton(None)
         self.setup_dialog.show()
 
-        self.setup_worker = SetupWorker(self._base_dir, self.ls_venv_python, self.eil_venv_python)
+        self.setup_worker = SetupWorker(
+            self._base_dir, self.ls_venv_python, self.eil_venv_python
+        )
         self.setup_worker.progress.connect(self.setup_dialog.setLabelText)
         self.setup_worker.finished.connect(self.on_setup_finished)
         self.setup_worker.start()
@@ -890,8 +1039,9 @@ class UnifiedPluginDialog(QMainWindow):
 
         if success:
             QMessageBox.information(
-                self, "Setup Complete",
-                "Python environments and the GRASS addon are ready."
+                self,
+                "Setup Complete",
+                "Python environments and the GRASS addon are ready.",
             )
         else:
             QMessageBox.critical(self, "Setup Failed", f"An error occurred:\n{message}")
@@ -934,15 +1084,18 @@ class UnifiedPluginDialog(QMainWindow):
 
         try:
             import matplotlib
+
             # Try the Qt-version-agnostic backend before the Qt5-only one.
             try:
                 matplotlib.use("qtagg")
                 from matplotlib.backends.backend_qtagg import (
-                    FigureCanvasQTAgg as FigureCanvas)
+                    FigureCanvasQTAgg as FigureCanvas,
+                )
             except (ImportError, ValueError):
                 matplotlib.use("Qt5Agg")
                 from matplotlib.backends.backend_qt5agg import (
-                    FigureCanvasQTAgg as FigureCanvas)
+                    FigureCanvasQTAgg as FigureCanvas,
+                )
             from matplotlib.figure import Figure
         except ImportError:
             placeholder = QtWidgets.QLabel(
@@ -971,8 +1124,7 @@ class UnifiedPluginDialog(QMainWindow):
         eil_ready = self.dependency_panel.is_ready(pu.FEATURE_EIL)
         self.ui_eil.pushButton_Run.setEnabled(eil_ready and not self._eil_running)
         self.ui_eil.pushButton_Run.setToolTip(
-            "" if eil_ready
-            else "Missing dependencies — see the Dependencies tab."
+            "" if eil_ready else "Missing dependencies — see the Dependencies tab."
         )
 
     def _require_dependencies(self, feature):
@@ -989,7 +1141,7 @@ class UnifiedPluginDialog(QMainWindow):
         env = os.environ.copy()
         env.pop("PYTHONHOME", None)
         env.pop("PYTHONPATH", None)
-        if sys.platform == 'win32':
+        if sys.platform == "win32":
             qgis_root = os.path.dirname(os.path.dirname(sys.prefix))
             qgis_bin = os.path.join(qgis_root, "bin")
             if os.path.exists(qgis_bin):
@@ -1000,219 +1152,263 @@ class UnifiedPluginDialog(QMainWindow):
         cb.wheelEvent = lambda event: event.ignore()
 
     def eventFilter(self, source, event):
-            # 1. When the mouse ENTERS the label's space
-            if event.type() == QtCore.QEvent.Enter:
-                
-                # Loop through our dictionary to find which label triggered the hover
-                for name, info in self.feature_info.items():
-                    label_obj = getattr(self.ui_eil, f"label_{name}", None)
-                    
-                    if source == label_obj:
-                        # Clear any existing text first
-                        self.ui_eil.plainTextEdit_Details.clear()
-                        
-                        # Build the HTML string with inline CSS
-                        html_format = f"""
+        # 1. When the mouse ENTERS the label's space
+        if event.type() == QtCore.QEvent.Enter:
+
+            # Loop through our dictionary to find which label triggered the hover
+            for name, info in self.feature_info.items():
+                label_obj = getattr(self.ui_eil, f"label_{name}", None)
+
+                if source == label_obj:
+                    # Clear any existing text first
+                    self.ui_eil.plainTextEdit_Details.clear()
+
+                    # Build the HTML string with inline CSS
+                    html_format = f"""
                             <h1 style="color: #000000; margin-top: 20px; margin-bottom: 20px; margin-left: 20px;">{info['title']}</h1>
                             <p style="font-size: 24px; margin-top: 0px; margin-bottom: 20px; margin-left: 20px; margin-right: 20px; line-height: 1.4;">
                                 {info['desc']}
                             </p>
                         """
-                        
-                        # Inject the HTML into the box
-                        self.ui_eil.plainTextEdit_Details.appendHtml(html_format)
-                        return True # Tell PyQt we successfully handled this event
-                        
-            # 2. When the mouse LEAVES the label's space
-            elif event.type() == QtCore.QEvent.Leave:
-                self.ui_eil.plainTextEdit_Details.clear()
-                
-                # Optional: Add a default placeholder text when nothing is hovered
-                self.ui_eil.plainTextEdit_Details.appendHtml(
-                    "<p style='color: #666666; font-style: italic;'>Hover over a parameter label to view its details.</p>"
-                )
-                return True
 
-            # Pass all other events back to the normal system
-            return super(UnifiedPluginDialog, self).eventFilter(source, event)
-    
-    def update_municipality_table(self, final_gpkg_path):
-            import numpy as np
+                    # Inject the HTML into the box
+                    self.ui_eil.plainTextEdit_Details.appendHtml(html_format)
+                    return True  # Tell PyQt we successfully handled this event
 
-            from qgis.core import (
-                QgsVectorLayer, QgsSpatialIndex, QgsCoordinateTransform, QgsProject
+        # 2. When the mouse LEAVES the label's space
+        elif event.type() == QtCore.QEvent.Leave:
+            self.ui_eil.plainTextEdit_Details.clear()
+
+            # Optional: Add a default placeholder text when nothing is hovered
+            self.ui_eil.plainTextEdit_Details.appendHtml(
+                "<p style='color: #666666; font-style: italic;'>Hover over a parameter label to view its details.</p>"
             )
-            from qgis.PyQt import QtWidgets
+            return True
 
-            try:
-                self.log_eil("\n--> Calculating Top 5 Hazardous Municipalities...")
-                QtWidgets.QApplication.processEvents() # Keeps UI from freezing during math
-                
-                roi_config = self.admin_config.get("Municipality")
-                if not roi_config or not os.path.exists(roi_config["path"]):
-                    self.log_eil("[Warning] Municipality ROI shapefile not found.")
-                    return
+        # Pass all other events back to the normal system
+        return super(UnifiedPluginDialog, self).eventFilter(source, event)
 
-                # 1. Load layers natively in QGIS
-                hazard_layer = QgsVectorLayer(final_gpkg_path, "hazard_temp", "ogr")
-                roi_layer = QgsVectorLayer(roi_config["path"], "roi_temp", "ogr")
-                roi_col = roi_config["col"]
+    def update_municipality_table(self, final_gpkg_path):
+        import numpy as np
 
-                if not hazard_layer.isValid() or not roi_layer.isValid():
-                    self.log_eil("[Error] Could not load layers for table generation.")
-                    return
+        from qgis.core import (
+            QgsVectorLayer,
+            QgsSpatialIndex,
+            QgsCoordinateTransform,
+            QgsProject,
+        )
+        from qgis.PyQt import QtWidgets
 
-                # 2. Setup Coordinate Transformation (In case your GPKG and ROI have different EPSGs)
-                coord_transform = None
-                if hazard_layer.crs() != roi_layer.crs():
-                    coord_transform = QgsCoordinateTransform(hazard_layer.crs(), roi_layer.crs(), QgsProject.instance().transformContext())
+        try:
+            self.log_eil("\n--> Calculating Top 5 Hazardous Municipalities...")
+            QtWidgets.QApplication.processEvents()  # Keeps UI from freezing during math
 
-                # 3. Build a fast Spatial Index for the ROI Map
-                roi_names = {}
-                roi_index = QgsSpatialIndex()
-                
-                for feat in roi_layer.getFeatures():
-                    roi_names[feat.id()] = str(feat[roi_col])
-                    roi_index.addFeature(feat)
+            roi_config = self.admin_config.get("Municipality")
+            if not roi_config or not os.path.exists(roi_config["path"]):
+                self.log_eil("[Warning] Municipality ROI shapefile not found.")
+                return
 
-                muni_stats = {}
-                idx_sus = hazard_layer.fields().indexOf("Hazard_Susceptibility")
+            # 1. Load layers natively in QGIS
+            hazard_layer = QgsVectorLayer(final_gpkg_path, "hazard_temp", "ogr")
+            roi_layer = QgsVectorLayer(roi_config["path"], "roi_temp", "ogr")
+            roi_col = roi_config["col"]
 
-                # 4. Loop through every generated slope unit
-                for feat in hazard_layer.getFeatures():
-                    geom = feat.geometry()
-                    if geom.isNull(): continue
-                    
-                    # Get the center point of the slope unit
-                    centroid = geom.centroid()
-                    
-                    # Transform point to match the ROI map
-                    if coord_transform:
-                        centroid.transform(coord_transform)
-                    
-                    # Ask the spatial engine which city this point landed in
-                    intersecting_ids = roi_index.intersects(centroid.boundingBox())
-                    
-                    muni_name = "Unknown"
-                    if intersecting_ids:
-                        # Do a precise boundary check
-                        for roi_id in intersecting_ids:
-                            roi_feat = roi_layer.getFeature(roi_id)
-                            if roi_feat.geometry().contains(centroid):
-                                muni_name = roi_names[roi_id]
-                                break
-                        # Fallback if edge-case
-                        if muni_name == "Unknown":
-                            muni_name = roi_names[intersecting_ids[0]]
-                    
+            if not hazard_layer.isValid() or not roi_layer.isValid():
+                self.log_eil("[Error] Could not load layers for table generation.")
+                return
+
+            # 2. Setup Coordinate Transformation (In case your GPKG and ROI have different EPSGs)
+            coord_transform = None
+            if hazard_layer.crs() != roi_layer.crs():
+                coord_transform = QgsCoordinateTransform(
+                    hazard_layer.crs(),
+                    roi_layer.crs(),
+                    QgsProject.instance().transformContext(),
+                )
+
+            # 3. Build a fast Spatial Index for the ROI Map
+            roi_names = {}
+            roi_index = QgsSpatialIndex()
+
+            for feat in roi_layer.getFeatures():
+                roi_names[feat.id()] = str(feat[roi_col])
+                roi_index.addFeature(feat)
+
+            muni_stats = {}
+            idx_sus = hazard_layer.fields().indexOf("Hazard_Susceptibility")
+
+            # 4. Loop through every generated slope unit
+            for feat in hazard_layer.getFeatures():
+                geom = feat.geometry()
+                if geom.isNull():
+                    continue
+
+                # Get the center point of the slope unit
+                centroid = geom.centroid()
+
+                # Transform point to match the ROI map
+                if coord_transform:
+                    centroid.transform(coord_transform)
+
+                # Ask the spatial engine which city this point landed in
+                intersecting_ids = roi_index.intersects(centroid.boundingBox())
+
+                muni_name = "Unknown"
+                if intersecting_ids:
+                    # Do a precise boundary check
+                    for roi_id in intersecting_ids:
+                        roi_feat = roi_layer.getFeature(roi_id)
+                        if roi_feat.geometry().contains(centroid):
+                            muni_name = roi_names[roi_id]
+                            break
+                    # Fallback if edge-case
                     if muni_name == "Unknown":
-                        continue
+                        muni_name = roi_names[intersecting_ids[0]]
 
-                    if muni_name not in muni_stats:
-                        muni_stats[muni_name] = {"High": 0, "Moderate": 0, "Low": 0}
-                    
-                    # Categorize the Hazard value
-                    val = feat.attributes()[idx_sus]
-                    try:
-                        val_float = float(val)
-                        if val_float > 0.66:
-                            muni_stats[muni_name]["High"] += 1
-                        elif val_float >= 0.33:
-                            muni_stats[muni_name]["Moderate"] += 1
-                        else:
-                            muni_stats[muni_name]["Low"] += 1
-                    except:
+                if muni_name == "Unknown":
+                    continue
+
+                if muni_name not in muni_stats:
+                    muni_stats[muni_name] = {"High": 0, "Moderate": 0, "Low": 0}
+
+                # Categorize the Hazard value
+                val = feat.attributes()[idx_sus]
+                try:
+                    val_float = float(val)
+                    if val_float > 0.66:
+                        muni_stats[muni_name]["High"] += 1
+                    elif val_float >= 0.33:
+                        muni_stats[muni_name]["Moderate"] += 1
+                    else:
                         muni_stats[muni_name]["Low"] += 1
+                except:
+                    muni_stats[muni_name]["Low"] += 1
 
-                # 5. Sort dictionary by High hazard counts (descending), take top 10
-                sorted_stats = sorted(muni_stats.items(), key=lambda x: x[1]["High"], reverse=True)[:10]
+            # 5. Sort dictionary by High hazard counts (descending), take top 10
+            sorted_stats = sorted(
+                muni_stats.items(), key=lambda x: x[1]["High"], reverse=True
+            )[:10]
 
-                # 6. Inject the data into the QTableWidget
-                table = self.ui_eil.tableWidget_Hazard
-                table.setRowCount(len(sorted_stats))
-                
-                for row_idx, (muni_name, stats) in enumerate(sorted_stats):
-                    table.setItem(row_idx, 0, QtWidgets.QTableWidgetItem(muni_name))
-                    table.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(str(stats['High'])))
-                    table.setItem(row_idx, 2, QtWidgets.QTableWidgetItem(str(stats['Moderate'])))
-                    table.setItem(row_idx, 3, QtWidgets.QTableWidgetItem(str(stats['Low'])))
+            # 6. Inject the data into the QTableWidget
+            table = self.ui_eil.tableWidget_Hazard
+            table.setRowCount(len(sorted_stats))
 
-                self.log_eil("--> Table successfully updated!")
+            for row_idx, (muni_name, stats) in enumerate(sorted_stats):
+                table.setItem(row_idx, 0, QtWidgets.QTableWidgetItem(muni_name))
+                table.setItem(
+                    row_idx, 1, QtWidgets.QTableWidgetItem(str(stats["High"]))
+                )
+                table.setItem(
+                    row_idx, 2, QtWidgets.QTableWidgetItem(str(stats["Moderate"]))
+                )
+                table.setItem(row_idx, 3, QtWidgets.QTableWidgetItem(str(stats["Low"])))
 
+            self.log_eil("--> Table successfully updated!")
 
-                # --- NEW STEP: DRAW THE STACKED BAR CHART ---
-                munis = [x[0] for x in sorted_stats]
-                highs = [x[1]["High"] for x in sorted_stats]
-                mods = [x[1]["Moderate"] for x in sorted_stats]
-                lows = [x[1]["Low"] for x in sorted_stats]
+            # --- NEW STEP: DRAW THE STACKED BAR CHART ---
+            munis = [x[0] for x in sorted_stats]
+            highs = [x[1]["High"] for x in sorted_stats]
+            mods = [x[1]["Moderate"] for x in sorted_stats]
+            lows = [x[1]["Low"] for x in sorted_stats]
 
-                if self.figure_hazard is None:
-                    self.log_eil(
-                        "--> Chart skipped (matplotlib not installed)."
-                    )
-                    return
+            if self.figure_hazard is None:
+                self.log_eil("--> Chart skipped (matplotlib not installed).")
+                return
 
-                self.figure_hazard.clear()
-                ax = self.figure_hazard.add_subplot(111)
+            self.figure_hazard.clear()
+            ax = self.figure_hazard.add_subplot(111)
 
-                ind = np.arange(len(munis))
-                width = 0.6
+            ind = np.arange(len(munis))
+            width = 0.6
 
-                # Stack the bars on top of each other (High -> Moderate -> Low)
-                p1 = ax.bar(ind, highs, width, color='#ff0000') # Red
-                p2 = ax.bar(ind, mods, width, bottom=highs, color='#7030a0') # Purple
-                p3 = ax.bar(ind, lows, width, bottom=np.array(highs)+np.array(mods), color='#ffff00') # Yellow
+            # Stack the bars on top of each other (High -> Moderate -> Low)
+            p1 = ax.bar(ind, highs, width, color="#ff0000")  # Red
+            p2 = ax.bar(ind, mods, width, bottom=highs, color="#7030a0")  # Purple
+            p3 = ax.bar(
+                ind,
+                lows,
+                width,
+                bottom=np.array(highs) + np.array(mods),
+                color="#ffff00",
+            )  # Yellow
 
-                # Style the Chart
-                ax.set_ylabel('Number of Landslides', fontsize=10)
-                ax.set_title('Top 10 Hazard Distribution', fontsize=12, fontweight='bold')
-                ax.set_xticks(ind)
-                ax.set_xticklabels(munis, rotation=45, ha="right", fontsize=9)
-                
-                # Hide the top and right borders of the graph for a cleaner look
-                ax.spines['top'].set_visible(False)
-                ax.spines['right'].set_visible(False)
+            # Style the Chart
+            ax.set_ylabel("Number of Landslides", fontsize=10)
+            ax.set_title("Top 10 Hazard Distribution", fontsize=12, fontweight="bold")
+            ax.set_xticks(ind)
+            ax.set_xticklabels(munis, rotation=45, ha="right", fontsize=9)
 
-                # Add Legend
-                ax.legend((p1[0], p2[0], p3[0]), ('High Hazard', 'Moderate Hazard', 'Low Hazard'), 
-                        loc='upper right', frameon=False, fontsize=9)
+            # Hide the top and right borders of the graph for a cleaner look
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
 
-                # Draw it!
-                self.figure_hazard.tight_layout()
-                self.canvas_hazard.draw()
-                
-                self.log_eil("--> Dashboard successfully updated!")
+            # Add Legend
+            ax.legend(
+                (p1[0], p2[0], p3[0]),
+                ("High Hazard", "Moderate Hazard", "Low Hazard"),
+                loc="upper right",
+                frameon=False,
+                fontsize=9,
+            )
 
-            except Exception as e:
-                import traceback
-                self.log_eil(f"\n[Table Error] Failed to generate table:\n{str(e)}")
+            # Draw it!
+            self.figure_hazard.tight_layout()
+            self.canvas_hazard.draw()
+
+            self.log_eil("--> Dashboard successfully updated!")
+
+        except Exception as e:
+            import traceback
+
+            self.log_eil(f"\n[Table Error] Failed to generate table:\n{str(e)}")
+
     # ==================================================================
     # LANDSLIDE LOGIC
     # ==================================================================
     def build_dynamic_landslide_ui(self):
         self.ui_ls.Label_ROI.setText("LULC Shapefile:")
-        self.ui_ls.GroupBox_ROI.setTitle("LULC Preview") 
-        
-        self.ui_ls.GroupBox_ROI_Selection = QtWidgets.QGroupBox(self.ui_ls.Widget_Inputs)
+        self.ui_ls.GroupBox_ROI.setTitle("LULC Preview")
+
+        self.ui_ls.GroupBox_ROI_Selection = QtWidgets.QGroupBox(
+            self.ui_ls.Widget_Inputs
+        )
         self.ui_ls.GroupBox_ROI_Selection.setTitle("Region of Interest")
-        
-        self.ui_ls.layout_roi_select = QtWidgets.QGridLayout(self.ui_ls.GroupBox_ROI_Selection)
+
+        self.ui_ls.layout_roi_select = QtWidgets.QGridLayout(
+            self.ui_ls.GroupBox_ROI_Selection
+        )
         self.ui_ls.layout_roi_select.setContentsMargins(10, 15, 10, 15)
         self.ui_ls.layout_roi_select.setVerticalSpacing(15)
         self.ui_ls.layout_roi_select.setHorizontalSpacing(10)
         self.ui_ls.layout_roi_select.setColumnStretch(1, 1)
 
-        self.ui_ls.Label_Search = QtWidgets.QLabel("Search Location:", self.ui_ls.GroupBox_ROI_Selection)
-        self.ui_ls.LineEdit_Search = QtWidgets.QLineEdit(self.ui_ls.GroupBox_ROI_Selection)
-        self.ui_ls.LineEdit_Search.setPlaceholderText("Type to search (e.g. Alamada)...")
-        
-        self.ui_ls.Label_Level = QtWidgets.QLabel("Select Level:", self.ui_ls.GroupBox_ROI_Selection)
-        self.ui_ls.ComboBox_ROI_Level = QtWidgets.QComboBox(self.ui_ls.GroupBox_ROI_Selection)
-        self.ui_ls.ComboBox_ROI_Level.addItems(["Region", "Province", "Municipality", "Barangay"])
-        self.ui_ls.ComboBox_ROI_Level.setCurrentText("Municipality") 
-        
-        self.ui_ls.Label_Name = QtWidgets.QLabel("Select Name:", self.ui_ls.GroupBox_ROI_Selection)
-        self.ui_ls.ComboBox_ROI_Name = QtWidgets.QComboBox(self.ui_ls.GroupBox_ROI_Selection)
+        self.ui_ls.Label_Search = QtWidgets.QLabel(
+            "Search Location:", self.ui_ls.GroupBox_ROI_Selection
+        )
+        self.ui_ls.LineEdit_Search = QtWidgets.QLineEdit(
+            self.ui_ls.GroupBox_ROI_Selection
+        )
+        self.ui_ls.LineEdit_Search.setPlaceholderText(
+            "Type to search (e.g. Alamada)..."
+        )
+
+        self.ui_ls.Label_Level = QtWidgets.QLabel(
+            "Select Level:", self.ui_ls.GroupBox_ROI_Selection
+        )
+        self.ui_ls.ComboBox_ROI_Level = QtWidgets.QComboBox(
+            self.ui_ls.GroupBox_ROI_Selection
+        )
+        self.ui_ls.ComboBox_ROI_Level.addItems(
+            ["Region", "Province", "Municipality", "Barangay"]
+        )
+        self.ui_ls.ComboBox_ROI_Level.setCurrentText("Municipality")
+
+        self.ui_ls.Label_Name = QtWidgets.QLabel(
+            "Select Name:", self.ui_ls.GroupBox_ROI_Selection
+        )
+        self.ui_ls.ComboBox_ROI_Name = QtWidgets.QComboBox(
+            self.ui_ls.GroupBox_ROI_Selection
+        )
         self.ui_ls.ComboBox_ROI_Name.setEditable(False)
 
         self.disable_cb_scroll(self.ui_ls.ComboBox_ROI_Level)
@@ -1224,18 +1420,22 @@ class UnifiedPluginDialog(QMainWindow):
         self.ui_ls.layout_roi_select.addWidget(self.ui_ls.ComboBox_ROI_Level, 1, 1)
         self.ui_ls.layout_roi_select.addWidget(self.ui_ls.Label_Name, 2, 0)
         self.ui_ls.layout_roi_select.addWidget(self.ui_ls.ComboBox_ROI_Name, 2, 1)
-        
+
         self.ui_ls.verticalLayout_4.insertWidget(2, self.ui_ls.GroupBox_ROI_Selection)
 
     def connect_landslide_signals(self):
-        self.ui_ls.PushButton_ROI.clicked.connect(self.select_lulc_file_ls) 
+        self.ui_ls.PushButton_ROI.clicked.connect(self.select_lulc_file_ls)
         self.ui_ls.PushButton_DEM.clicked.connect(self.select_dem_file_ls)
         # self.ui_ls.PushButton_Sentinel_2_Pre_Event.clicked.connect(self.select_pre_event_file_ls)
-        self.ui_ls.PushButton_Sentinel_2_Post_Event.clicked.connect(self.select_post_event_file_ls)
+        self.ui_ls.PushButton_Sentinel_2_Post_Event.clicked.connect(
+            self.select_post_event_file_ls
+        )
         self.ui_ls.Button_Detect.clicked.connect(self.run_landslide_detection)
         self.ui_ls.Button_Save.clicked.connect(self.save_landslide_result)
 
-        self.ui_ls.ComboBox_ROI_Level.currentTextChanged.connect(self.populate_location_names_ls)
+        self.ui_ls.ComboBox_ROI_Level.currentTextChanged.connect(
+            self.populate_location_names_ls
+        )
         self.populate_location_names_ls()
         QtCore.QTimer.singleShot(100, self.build_search_index_ls)
 
@@ -1258,7 +1458,8 @@ class UnifiedPluginDialog(QMainWindow):
                                     if name not in self.location_index:
                                         self.location_index[name] = level
                                         all_names.append(name)
-                except: pass
+                except:
+                    pass
         completer = QtWidgets.QCompleter(all_names, self.ui_ls.LineEdit_Search)
         completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         completer.setFilterMode(QtCore.Qt.MatchContains)
@@ -1279,7 +1480,8 @@ class UnifiedPluginDialog(QMainWindow):
         self.ui_ls.ComboBox_ROI_Name.clear()
         selected_level = self.ui_ls.ComboBox_ROI_Level.currentText()
         config = self.admin_config.get(selected_level)
-        if not config: return
+        if not config:
+            return
 
         shp_path = config["path"]
         col_name = config["col"]
@@ -1288,87 +1490,102 @@ class UnifiedPluginDialog(QMainWindow):
             return
 
         layer = QgsVectorLayer(shp_path, "roi_temp", "ogr")
-        if not layer.isValid(): return
+        if not layer.isValid():
+            return
 
         try:
             idx = layer.fields().indexOf(col_name)
             unique_values = layer.uniqueValues(idx)
             sorted_names = sorted([str(v) for v in unique_values if v])
             self.ui_ls.ComboBox_ROI_Name.addItems(sorted_names)
-        except: pass
+        except:
+            pass
 
     def generate_and_preview_slope(self, dem_path):
         import processing
         from qgis.PyQt import QtWidgets, QtCore
-        
+
         try:
             # Change mouse cursor to loading spinner so user knows it's working
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-            
+
             # Use QGIS's native C++ engine to instantly generate a temporary slope map
-            result = processing.run("native:slope", {
-                'INPUT': dem_path,
-                'Z_FACTOR': 1.0,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            })
-            
-            slope_temp_path = result['OUTPUT']
-            
+            result = processing.run(
+                "native:slope",
+                {"INPUT": dem_path, "Z_FACTOR": 1.0, "OUTPUT": "TEMPORARY_OUTPUT"},
+            )
+
+            slope_temp_path = result["OUTPUT"]
+
             # Send the temporary slope path to the bottom-left preview box
-            self.preview_layer(slope_temp_path, self.ui_ls.GraphicsView_Slope, is_raster=True)
-            
+            self.preview_layer(
+                slope_temp_path, self.ui_ls.GraphicsView_Slope, is_raster=True
+            )
+
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Preview Error", f"Could not generate Slope preview:\n{str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self, "Preview Error", f"Could not generate Slope preview:\n{str(e)}"
+            )
         finally:
             # Always restore the cursor back to normal
             QtWidgets.QApplication.restoreOverrideCursor()
 
     def select_lulc_file_ls(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select LULC Shapefile", "", "Shapefiles (*.shp)")
-        if filename: 
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select LULC Shapefile", "", "Shapefiles (*.shp)"
+        )
+        if filename:
             self.ui_ls.PTE_ROI.setPlainText(filename)
             self.preview_layer(filename, self.ui_ls.GraphicsView_ROI, is_raster=False)
 
     def select_dem_file_ls(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select DEM", "", "Tiff (*.tif)")
-        if filename: 
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select DEM", "", "Tiff (*.tif)"
+        )
+        if filename:
             self.ui_ls.PTE_DEM.setPlainText(filename)
             self.preview_layer(filename, self.ui_ls.GraphicsView_DEM_2, is_raster=True)
             self.generate_and_preview_slope(filename)
 
     # def select_pre_event_file_ls(self):
     #     filename, _ = QFileDialog.getOpenFileName(self, "Select Pre-Event", "", "Tiff (*.tif)")
-    #     if filename: 
+    #     if filename:
     #         self.ui_ls.PTE_Sentinel_2_Pre_Event.setPlainText(filename)
     #         self.preview_layer(filename, self.ui_ls.GraphicsView_Pre_Event, is_raster=True)
 
     def select_post_event_file_ls(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select Post-Event", "", "Tiff (*.tif)")
-        if filename: 
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select Post-Event", "", "Tiff (*.tif)"
+        )
+        if filename:
             self.ui_ls.PTE_Sentinel_2_Post_Event.setPlainText(filename)
-            self.preview_layer(filename, self.ui_ls.GraphicsView_Post_Event, is_raster=True)
+            self.preview_layer(
+                filename, self.ui_ls.GraphicsView_Post_Event, is_raster=True
+            )
 
     def preview_layer(self, file_path, graphics_view, is_raster=False):
         if is_raster:
             layer = QgsRasterLayer(file_path, "preview")
         else:
             layer = QgsVectorLayer(file_path, "preview", "ogr")
-        
-        if not layer.isValid(): return
+
+        if not layer.isValid():
+            return
 
         settings = QgsMapSettings()
         settings.setLayers([layer])
         settings.setBackgroundColor(QColor(255, 255, 255, 0))
         settings.setExtent(layer.extent())
-        
+
         view_size = graphics_view.size()
-        if view_size.width() <= 0: view_size = QtCore.QSize(200, 200)
+        if view_size.width() <= 0:
+            view_size = QtCore.QSize(200, 200)
         settings.setOutputSize(view_size)
 
         render_job = QgsMapRendererParallelJob(settings)
         render_job.start()
         render_job.waitForFinished()
-        
+
         image = render_job.renderedImage()
         scene = QtWidgets.QGraphicsScene()
         item = scene.addPixmap(QPixmap.fromImage(image))
@@ -1379,98 +1596,164 @@ class UnifiedPluginDialog(QMainWindow):
         lulc = self.ui_ls.PTE_ROI.toPlainText() or "None"
         dem = self.ui_ls.PTE_DEM.toPlainText()
         after = self.ui_ls.PTE_Sentinel_2_Post_Event.toPlainText()
-        
+
         selected_level = self.ui_ls.ComboBox_ROI_Level.currentText()
         selected_name = self.ui_ls.ComboBox_ROI_Name.currentText()
         config = self.admin_config.get(selected_level)
-        if not config: return
-        
+        if not config:
+            return
+
         roi_file_path = config["path"]
         filter_col = config["col"]
 
         if not all([dem, after]):
-            QtWidgets.QMessageBox.warning(self, "Missing Inputs", "Please select DEM and Sentinel-2 Post-Event files. LULC is optional.")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Missing Inputs",
+                "Please select DEM and Sentinel-2 Post-Event files. LULC is optional.",
+            )
             return
 
         import tempfile
-        temp_output_path = os.path.join(tempfile.gettempdir(), "temp_landslide_result.tif")
+
+        temp_output_path = os.path.join(
+            tempfile.gettempdir(), "temp_landslide_result.tif"
+        )
         worker_script = os.path.join(self._base_dir, "landslide_worker.py")
 
         # Locate the DL Model Paths
         model_path = os.path.join(self._base_dir, "model_lsi", "default", "best.keras")
-        stats_path = os.path.join(self._base_dir, "model_lsi", "default", "norm_stats.json")
+        stats_path = os.path.join(
+            self._base_dir, "model_lsi", "default", "norm_stats.json"
+        )
 
         if not os.path.exists(self.ls_venv_python):
-             QtWidgets.QMessageBox.critical(self, "Config Error", f"Virtual Environment Python not found at:\n{self.ls_venv_python}")
-             return
-             
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Config Error",
+                f"Virtual Environment Python not found at:\n{self.ls_venv_python}",
+            )
+            return
+
         if not os.path.exists(model_path) or not os.path.exists(stats_path):
-             QtWidgets.QMessageBox.critical(self, "Model Missing", f"Ensure 'best.keras' and 'norm_stats.json' are placed in the 'model' folder.")
-             return
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Model Missing",
+                f"Ensure 'best.keras' and 'norm_stats.json' are placed in the 'model' folder.",
+            )
+            return
 
         command = [
-            self.ls_venv_python, worker_script,
-            "--dem", dem, 
-            "--after", after, 
-            "--lulc", lulc,
-            "--output", temp_output_path, 
-            "--roi_path", roi_file_path,
-            "--filter_col", filter_col, 
-            "--filter_val", selected_name,
-            "--model_path", model_path,
-            "--stats_path", stats_path
+            self.ls_venv_python,
+            worker_script,
+            "--dem",
+            dem,
+            "--after",
+            after,
+            "--lulc",
+            lulc,
+            "--output",
+            temp_output_path,
+            "--roi_path",
+            roi_file_path,
+            "--filter_col",
+            filter_col,
+            "--filter_val",
+            selected_name,
+            "--model_path",
+            model_path,
+            "--stats_path",
+            stats_path,
         ]
 
         my_env = self._get_subprocess_env()
 
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
-            process = subprocess.run(command, capture_output=True, env=my_env,
-                                     **pu.subprocess_kwargs())
+            process = subprocess.run(
+                command, capture_output=True, env=my_env, **pu.subprocess_kwargs()
+            )
             if process.returncode == 0:
-                lines = process.stdout.strip().split('\n')
+                lines = process.stdout.strip().split("\n")
                 last_line = lines[-1] if lines else ""
                 try:
                     result_json = json.loads(last_line)
                     if result_json.get("status") == "success":
-                        QtWidgets.QMessageBox.information(self, "Success", "Detection Complete! You can now click SAVE.")
-                        
+                        QtWidgets.QMessageBox.information(
+                            self,
+                            "Success",
+                            "Detection Complete! You can now click SAVE.",
+                        )
+
                         mask_path = result_json.get("output_mask")
-                        self.current_result_path_ls = mask_path 
-                        
+                        self.current_result_path_ls = mask_path
+
                         # Send the final prediction strictly to the isolated Results viewer
                         if mask_path and os.path.exists(mask_path):
-                             self.preview_layer(mask_path, self.ui_ls.GraphicsView_Result, is_raster=True)
-                             rlayer = QgsRasterLayer(mask_path, "Landslide Result (Preview)")
-                             if rlayer.isValid(): QgsProject.instance().addMapLayer(rlayer)
+                            self.preview_layer(
+                                mask_path,
+                                self.ui_ls.GraphicsView_Result,
+                                is_raster=True,
+                            )
+                            rlayer = QgsRasterLayer(
+                                mask_path, "Landslide Result (Preview)"
+                            )
+                            if rlayer.isValid():
+                                QgsProject.instance().addMapLayer(rlayer)
                     else:
-                        QtWidgets.QMessageBox.critical(self, "Worker Error", f"Script failed: {result_json.get('message')}")
+                        QtWidgets.QMessageBox.critical(
+                            self,
+                            "Worker Error",
+                            f"Script failed: {result_json.get('message')}",
+                        )
                 except json.JSONDecodeError:
-                     QtWidgets.QMessageBox.warning(self, "Error", f"Could not parse script output.\n\nTerminal Output:\n{process.stdout}")
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Error",
+                        f"Could not parse script output.\n\nTerminal Output:\n{process.stdout}",
+                    )
             else:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Process failed.\n{process.stderr}")
+                QtWidgets.QMessageBox.critical(
+                    self, "Error", f"Process failed.\n{process.stderr}"
+                )
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "System Error", str(e))
         finally:
-             QtWidgets.QApplication.restoreOverrideCursor()
+            QtWidgets.QApplication.restoreOverrideCursor()
 
     def save_landslide_result(self):
-        if not self.current_result_path_ls or not os.path.exists(self.current_result_path_ls):
-            QMessageBox.warning(self, "Save", "No detection result exists yet.\nPlease run 'DETECT' first.")
+        if not self.current_result_path_ls or not os.path.exists(
+            self.current_result_path_ls
+        ):
+            QMessageBox.warning(
+                self,
+                "Save",
+                "No detection result exists yet.\nPlease run 'DETECT' first.",
+            )
             return
 
         roi_name = self.ui_ls.ComboBox_ROI_Name.currentText()
         safe_name = (roi_name or "Landslide_Result").replace(" ", "_")
-        default_path = os.path.join(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation), f"{safe_name}_Landslide.tif")
+        default_path = os.path.join(
+            QtCore.QStandardPaths.writableLocation(
+                QtCore.QStandardPaths.DocumentsLocation
+            ),
+            f"{safe_name}_Landslide.tif",
+        )
 
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Landslide Mask", default_path, "Tiff Files (*.tif)")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Landslide Mask", default_path, "Tiff Files (*.tif)"
+        )
         if filename:
             try:
                 shutil.copy2(self.current_result_path_ls, filename)
-                QMessageBox.information(self, "Saved", f"File successfully saved to:\n{filename}")
+                QMessageBox.information(
+                    self, "Saved", f"File successfully saved to:\n{filename}"
+                )
             except Exception as e:
-                QMessageBox.critical(self, "Save Error", f"Could not save file:\n{str(e)}")
-
+                QMessageBox.critical(
+                    self, "Save Error", f"Could not save file:\n{str(e)}"
+                )
 
     # ==================================================================
     # EIL LOGIC (UPDATED WITH DELETE BUTTONS)
@@ -1480,7 +1763,11 @@ class UnifiedPluginDialog(QMainWindow):
     # ==================================================================
     def connect_eil_signals(self):
         self.dem_icon_path = os.path.join(self._base_dir, "DEM_icon.svg")
-        self.icon_dem = QtGui.QIcon(self.dem_icon_path) if os.path.exists(self.dem_icon_path) else QtGui.QIcon()
+        self.icon_dem = (
+            QtGui.QIcon(self.dem_icon_path)
+            if os.path.exists(self.dem_icon_path)
+            else QtGui.QIcon()
+        )
 
         # Connect hover descriptions
         for name in self.feature_info.keys():
@@ -1490,11 +1777,16 @@ class UnifiedPluginDialog(QMainWindow):
                 label_obj.installEventFilter(self)
 
         self.pinn_comboboxes = [
-            self.ui_eil.comboBox_BulkDensity, self.ui_eil.comboBox_Clay,
-            self.ui_eil.comboBox_Sand, self.ui_eil.comboBox_Silt,
-            self.ui_eil.comboBox_Slope, self.ui_eil.comboBox_PGA,
-            self.ui_eil.comboBox_PRC, self.ui_eil.comboBox_SoilThickness, 
-            self.ui_eil.comboBox_SoilType, self.ui_eil.comboBox_ContributingFactor,
+            self.ui_eil.comboBox_BulkDensity,
+            self.ui_eil.comboBox_Clay,
+            self.ui_eil.comboBox_Sand,
+            self.ui_eil.comboBox_Silt,
+            self.ui_eil.comboBox_Slope,
+            self.ui_eil.comboBox_PGA,
+            self.ui_eil.comboBox_PRC,
+            self.ui_eil.comboBox_SoilThickness,
+            self.ui_eil.comboBox_SoilType,
+            self.ui_eil.comboBox_ContributingFactor,
         ]
 
         self.pinn_buttons = {
@@ -1522,27 +1814,33 @@ class UnifiedPluginDialog(QMainWindow):
         self.ui_eil.progressBar.setValue(0)
 
         # "Dummy Text" Hack for the single Max Iteration box
-        self.ui_eil.plainTextEdit_MaxIteration.setStyleSheet("QPlainTextEdit { color: black; }")
+        self.ui_eil.plainTextEdit_MaxIteration.setStyleSheet(
+            "QPlainTextEdit { color: black; }"
+        )
         self.ui_eil.plainTextEdit_MaxIteration.setPlaceholderText("[Default: 10]")
         self.ui_eil.plainTextEdit_MaxIteration.setPlainText("10")
-        
+
         self.disable_cb_scroll(self.ui_eil.comboBox_DEM)
         for box in self.pinn_comboboxes:
             self.disable_cb_scroll(box)
 
-        self.ui_eil.comboBox_DEM.currentTextChanged.connect(lambda t: self.log_layer_selection(t, "DEM"))
+        self.ui_eil.comboBox_DEM.currentTextChanged.connect(
+            lambda t: self.log_layer_selection(t, "DEM")
+        )
         for box in self.pinn_comboboxes:
             box.currentTextChanged.connect(
-                lambda text, b=box: self.log_layer_selection(text, b.objectName().replace("comboBox_", ""))
+                lambda text, b=box: self.log_layer_selection(
+                    text, b.objectName().replace("comboBox_", "")
+                )
             )
 
         self.populate_loaded_layers_eil()
         QgsProject.instance().layersAdded.connect(self.populate_loaded_layers_eil)
         QgsProject.instance().layersRemoved.connect(self.populate_loaded_layers_eil)
-        
+
         self.ui_eil.pushButton_DEM.clicked.connect(self.select_dem_file_eil)
         self.populate_pinn_comboboxes()
-        
+
         self.ui_eil.pushButton_Run.clicked.connect(self.run_new_eil_algorithm)
         self.ui_eil.pushButton_Cancel.clicked.connect(self.cancel_eil_algorithm)
 
@@ -1567,11 +1865,11 @@ class UnifiedPluginDialog(QMainWindow):
             box.blockSignals(True)
             box.clear()
             box.addItem("Select a layer...", None)
-            
+
         # Get all raster layers currently loaded in QGIS
         layers = QgsProject.instance().mapLayers().values()
         raster_layers = [layer for layer in layers if isinstance(layer, QgsRasterLayer)]
-        
+
         # Populate every box with the available rasters
         for box in self.pinn_comboboxes:
             for layer in raster_layers:
@@ -1585,92 +1883,115 @@ class UnifiedPluginDialog(QMainWindow):
 
     def handle_output_option(self, selection_text, combobox, text_box, log_name):
         if selection_text == "Save to File...":
-            filename, _ = QFileDialog.getSaveFileName(self, f"Save {log_name}", "", "GeoPackage (*.gpkg);;Shapefile (*.shp);;Tiff (*.tif)")
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                f"Save {log_name}",
+                "",
+                "GeoPackage (*.gpkg);;Shapefile (*.shp);;Tiff (*.tif)",
+            )
             if filename:
                 # If they select a file, physically write the path into the box
                 text_box.setPlainText(filename)
-                self.log_eil(f"[Output] {log_name} will be saved to: {os.path.basename(filename)}")
+                self.log_eil(
+                    f"[Output] {log_name} will be saved to: {os.path.basename(filename)}"
+                )
             else:
                 # If they cancel the browse window, revert to temporary
                 combobox.blockSignals(True)
-                combobox.setCurrentIndex(1) 
+                combobox.setCurrentIndex(1)
                 combobox.blockSignals(False)
-                text_box.clear() # Clear any physical text
+                text_box.clear()  # Clear any physical text
                 text_box.setPlaceholderText("[Save to temporary file (optional)]")
         elif selection_text == "Skip Output":
-            text_box.clear() # Clear physical text
+            text_box.clear()  # Clear physical text
             text_box.setPlaceholderText("[Output will be skipped]")
             self.log_eil(f"[Output] {log_name} generation skipped.", LOG_INFO)
         elif selection_text == "Save to a Temporary File":
-            text_box.clear() # Clear physical text
+            text_box.clear()  # Clear physical text
             text_box.setPlaceholderText("[Save to temporary file (optional)]")
             self.log_eil(f"[Output] {log_name} will be temporary.")
+
     # ------------------------------------------------------------------
     # DYNAMIC UI GENERATOR (WITH DELETE BUTTON)
     # ------------------------------------------------------------------
     def add_feature_row(self):
         grid = self.ui_eil.gridLayout
         row = self.feature_row_count
-        
+
         grid.removeWidget(self.ui_eil.pushButton_AddFeature)
-        
+
         new_feat_cb = QtWidgets.QComboBox()
         new_stats_cb = QtWidgets.QComboBox()
-        
+
         # Create a mini container to hold both the Browse and Delete buttons
         btn_container = QtWidgets.QWidget()
         btn_layout = QtWidgets.QHBoxLayout(btn_container)
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(4)
-        
+
         new_btn = QtWidgets.QPushButton("...")
         new_del_btn = QtWidgets.QPushButton("X")
-        new_del_btn.setStyleSheet("color: #cc0000; font-weight: bold;") # Red X
+        new_del_btn.setStyleSheet("color: #cc0000; font-weight: bold;")  # Red X
         new_del_btn.setFixedWidth(25)
-        
+
         btn_layout.addWidget(new_btn)
         btn_layout.addWidget(new_del_btn)
-        
+
         self.disable_cb_scroll(new_feat_cb)
         self.disable_cb_scroll(new_stats_cb)
-        
+
         for stat in self.zonal_stats_options:
             new_stats_cb.addItem(self.icon_stats, stat)
-            
-        new_btn.clicked.connect(lambda _, cb=new_feat_cb: self.select_dynamic_feature_file(cb))
-        new_feat_cb.currentTextChanged.connect(lambda t: self.log_layer_selection(t, f"Feature {len(self.dynamic_feature_rows) + 2}"))
-        
+
+        new_btn.clicked.connect(
+            lambda _, cb=new_feat_cb: self.select_dynamic_feature_file(cb)
+        )
+        new_feat_cb.currentTextChanged.connect(
+            lambda t: self.log_layer_selection(
+                t, f"Feature {len(self.dynamic_feature_rows) + 2}"
+            )
+        )
+
         grid.addWidget(new_feat_cb, row, 0)
         grid.addWidget(new_stats_cb, row, 1)
         grid.addWidget(btn_container, row, 2)
         grid.addWidget(self.ui_eil.pushButton_AddFeature, row + 1, 0, 1, 3)
-        
+
         # Save the container so we can destroy it entirely later
-        row_data = {'feature_cb': new_feat_cb, 'stats_cb': new_stats_cb, 'btn_container': btn_container}
+        row_data = {
+            "feature_cb": new_feat_cb,
+            "stats_cb": new_stats_cb,
+            "btn_container": btn_container,
+        }
         self.dynamic_feature_rows.append(row_data)
         self.feature_row_count += 1
-        
+
         # Connect the Delete Button
         new_del_btn.clicked.connect(lambda _, r=row_data: self.remove_feature_row(r))
-        
+
         self.populate_loaded_layers_eil()
         self.log_eil("--> Added Dynamic Feature Row", LOG_DETAIL)
 
     def remove_feature_row(self, row_data):
         """Destroys the UI elements and removes them from the model's memory."""
         # 1. Destroy the physical UI widgets
-        row_data['feature_cb'].deleteLater()
-        row_data['stats_cb'].deleteLater()
-        row_data['btn_container'].deleteLater()
-        
+        row_data["feature_cb"].deleteLater()
+        row_data["stats_cb"].deleteLater()
+        row_data["btn_container"].deleteLater()
+
         # 2. Remove them from the tracking list so the algorithm ignores them
         if row_data in self.dynamic_feature_rows:
             self.dynamic_feature_rows.remove(row_data)
-            
+
         self.log_eil("--> Removed Feature Row", LOG_DETAIL)
 
     def select_dynamic_feature_file(self, target_combobox):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select Feature Raster", "", "Tiff Files (*.tif *.tiff);;All Files (*.*)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Feature Raster",
+            "",
+            "Tiff Files (*.tif *.tiff);;All Files (*.*)",
+        )
         if filename:
             display_name = os.path.basename(filename)
             target_combobox.addItem(self.icon_feat, display_name, filename)
@@ -1694,7 +2015,7 @@ class UnifiedPluginDialog(QMainWindow):
         self.ui_eil.comboBox_DEM.addItem("Select a DEM layer...", None)
         for layer in raster_layers:
             self.ui_eil.comboBox_DEM.addItem(layer.name(), layer.id())
-        
+
         # Restore the user's previous DEM selection
         idx = self.ui_eil.comboBox_DEM.findData(dem_state)
         if idx != -1:
@@ -1706,10 +2027,10 @@ class UnifiedPluginDialog(QMainWindow):
             box.blockSignals(True)
             box.clear()
             box.addItem("Select a layer...", None)
-            
+
             for layer in raster_layers:
                 box.addItem(layer.name(), layer.id())
-                
+
             # Restore the user's previous selection for this specific box
             idx = box.findData(pinn_states[i])
             if idx != -1:
@@ -1717,11 +2038,15 @@ class UnifiedPluginDialog(QMainWindow):
             box.blockSignals(False)
 
     def select_dem_file_eil(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select DEM Raster", "", "Tiff Files (*.tif *.tiff);;All Files (*.*)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Select DEM Raster", "", "Tiff Files (*.tif *.tiff);;All Files (*.*)"
+        )
         if filename:
             display_name = os.path.basename(filename)
             self.ui_eil.comboBox_DEM.addItem(self.icon_dem, display_name, filename)
-            self.ui_eil.comboBox_DEM.setCurrentIndex(self.ui_eil.comboBox_DEM.count() - 1)
+            self.ui_eil.comboBox_DEM.setCurrentIndex(
+                self.ui_eil.comboBox_DEM.count() - 1
+            )
 
     # ------------------------------------------------------------------
     # EIL RUN STATE
@@ -1782,8 +2107,7 @@ class UnifiedPluginDialog(QMainWindow):
             self.ui_eil.progressBar.setFormat("%p%")
             return
 
-        self.log_eil(
-            "\n--> Cancelling: stopping the running stage…")
+        self.log_eil("\n--> Cancelling: stopping the running stage…")
         self._set_eil_stage("Cancelling…", "Stopping the current stage.")
         QtWidgets.QApplication.processEvents()
 
@@ -1810,17 +2134,17 @@ class UnifiedPluginDialog(QMainWindow):
 
         self.log_eil("\n--- STARTING FULL EIL PIPELINE ---")
         self.ui_eil.progressBar.setValue(0)
-        
+
         # 1. Grab and validate the DEM
         dem_id = self.ui_eil.comboBox_DEM.currentData()
         if not dem_id:
             QMessageBox.warning(self, "Error", "Please select a DEM.")
             self.log_eil("[ERROR] No DEM selected.")
             return
-            
+
         dem_path = ""
-        self.dem_crs_authid = "EPSG:4326" 
-        
+        self.dem_crs_authid = "EPSG:4326"
+
         if os.path.isabs(str(dem_id)):
             dem_path = str(dem_id)
             rlayer = QgsRasterLayer(dem_path, "temp_dem")
@@ -1829,24 +2153,27 @@ class UnifiedPluginDialog(QMainWindow):
         else:
             layer = QgsProject.instance().mapLayer(dem_id)
             if layer:
-                dem_path = layer.source().split("|")[0] 
+                dem_path = layer.source().split("|")[0]
                 self.dem_crs_authid = layer.crs().authid()
-                
+
         if not dem_path or not os.path.exists(dem_path):
             self.log_eil(f"[ERROR] Could not locate DEM file:\n{dem_path}")
             return
-        
+
         self.dem_path_for_taudem = dem_path
-            
+
         # 2. Gather rasters from the UI
-        selected_rasters = self.get_selected_rasters_from_ui() 
+        selected_rasters = self.get_selected_rasters_from_ui()
         if not selected_rasters:
-            self.log_eil("No parameters selected. Pipeline finished early.", LOG_WARNING)
+            self.log_eil(
+                "No parameters selected. Pipeline finished early.", LOG_WARNING
+            )
             return
 
         import tempfile, shutil
+
         self.temp_raster_dir = tempfile.mkdtemp(prefix="go_rasters_")
-        
+
         for param_name, tif_path in selected_rasters.items():
             symlink_path = os.path.join(self.temp_raster_dir, f"{param_name}.tif")
             try:
@@ -1866,20 +2193,24 @@ class UnifiedPluginDialog(QMainWindow):
 
         # 4. Enforce Hardcoded Default Parameters
         def safe_int(text, default):
-            try: return int(text)
-            except: return default
+            try:
+                return int(text)
+            except:
+                return default
 
         params = {
-            'areaMin': 5000,
-            'thresh': 5000,
-            'cvMin': 0.15,
-            'rf': 10,
-            'maxIter': safe_int(self.ui_eil.plainTextEdit_MaxIteration.toPlainText().strip(), 10),
-            'tileCols': 3, 
-            'tileRows': 3, 
-            'tileOverlap': 500
+            "areaMin": 5000,
+            "thresh": 5000,
+            "cvMin": 0.15,
+            "rf": 10,
+            "maxIter": safe_int(
+                self.ui_eil.plainTextEdit_MaxIteration.toPlainText().strip(), 10
+            ),
+            "tileCols": 3,
+            "tileRows": 3,
+            "tileOverlap": 500,
         }
-        
+
         self.log_eil(f"[Input DEM]: {os.path.basename(dem_path)}")
         self.log_eil(f"[Slope Params]: {params}")
         self._set_eil_running(
@@ -1888,26 +2219,31 @@ class UnifiedPluginDialog(QMainWindow):
             "Tiling the DEM, delineating slope units and computing zonal "
             "statistics for each selected parameter.",
         )
-        
+
         # 5. Start the Go Worker
         plugin_dir = os.path.dirname(os.path.abspath(__file__))
         go_repo_dir = os.path.join(plugin_dir, "ml-prep-scripts")
-        
+
         self.go_worker = GoParallelZonalWorker(
-            go_repo_dir, dem_path, self.temp_raster_dir, final_output_folder,
-            self.eil_venv_python, self.dem_crs_authid, len(selected_rasters), params
+            go_repo_dir,
+            dem_path,
+            self.temp_raster_dir,
+            final_output_folder,
+            self.eil_venv_python,
+            self.dem_crs_authid,
+            len(selected_rasters),
+            params,
         )
-        
+
         self.go_worker.progress.connect(self.ui_eil.progressBar.setValue)
         self.go_worker.log.connect(self.log_eil)
-        self.go_worker.error.connect(self.on_slope_units_error) 
+        self.go_worker.error.connect(self.on_slope_units_error)
         self.go_worker.finished.connect(self.on_pipeline_complete)
         self.go_worker.start()
 
-
     def get_selected_rasters_from_ui(self):
-        selected_rasters = {} 
-        
+        selected_rasters = {}
+
         def extract_path(combobox):
             layer_id = combobox.currentData()
             if not layer_id:
@@ -1916,6 +2252,7 @@ class UnifiedPluginDialog(QMainWindow):
                 return str(layer_id)
             else:
                 from qgis.core import QgsProject
+
                 layer = QgsProject.instance().mapLayer(layer_id)
                 if layer and layer.source():
                     return layer.source().split("|")[0]
@@ -1924,34 +2261,40 @@ class UnifiedPluginDialog(QMainWindow):
         # 1. Manually add the DEM using the exact prefix the Keras model expects
         dem_path = extract_path(self.ui_eil.comboBox_DEM)
         if dem_path and os.path.exists(dem_path):
-            selected_rasters["Elev"] = dem_path # Go will automatically output 'Elev_mean'
+            selected_rasters["Elev"] = (
+                dem_path  # Go will automatically output 'Elev_mean'
+            )
 
         # 2. Map the UI comboboxes directly to the Keras model's expected base names
         strict_mapping = {
-            "comboBox_Slope": "Slope",                           # -> Slope_mean
-            "comboBox_BulkDensity": "BUK",                       # -> BUK_mean
-            "comboBox_Clay": "Clay",                             # -> Clay_mean
-            "comboBox_Sand": "Sand",                             # -> Sand_mean
-            "comboBox_Silt": "Silt",                             # -> Silt_mean
-            "comboBox_PRC": "Prc",                               # -> Prc_mean
-            "comboBox_SoilThickness": "SoilThc",                 # -> SoilThc_mean
-            "comboBox_ContributingFactor": "ContributingFactor", # -> ContributingFactor_mean
-            "comboBox_PGA": "PGA2",                              # -> PGA2_mean 
-            "comboBox_SoilType": "type"                          # -> type
+            "comboBox_Slope": "Slope",  # -> Slope_mean
+            "comboBox_BulkDensity": "BUK",  # -> BUK_mean
+            "comboBox_Clay": "Clay",  # -> Clay_mean
+            "comboBox_Sand": "Sand",  # -> Sand_mean
+            "comboBox_Silt": "Silt",  # -> Silt_mean
+            "comboBox_PRC": "Prc",  # -> Prc_mean
+            "comboBox_SoilThickness": "SoilThc",  # -> SoilThc_mean
+            "comboBox_ContributingFactor": "ContributingFactor",  # -> ContributingFactor_mean
+            "comboBox_PGA": "PGA2",  # -> PGA2_mean
+            "comboBox_SoilType": "type",  # -> type
         }
 
         # Loop through your UI elements and enforce the naming convention
         for box in self.pinn_comboboxes:
             path = extract_path(box)
-            if path and os.path.exists(path) and path.lower().endswith(('.tif', '.tiff')):
+            if (
+                path
+                and os.path.exists(path)
+                and path.lower().endswith((".tif", ".tiff"))
+            ):
                 box_name = box.objectName()
                 if box_name in strict_mapping:
                     # Force the alias to be the strict standard name
                     standard_name = strict_mapping[box_name]
                     selected_rasters[standard_name] = path
-                    
+
         return selected_rasters
-    
+
     def _eliminate_seams(self, input_gpkg, output_gpkg, area_min, log_label="Layer"):
         """Merges tile-boundary sliver polygons into their largest neighbor,
         erasing seams left by the parallel Go tiling."""
@@ -1966,7 +2309,7 @@ class UnifiedPluginDialog(QMainWindow):
                 )
                 return input_gpkg
 
-            src_layer.selectByExpression(f'$area < {area_min}')
+            src_layer.selectByExpression(f"$area < {area_min}")
             n_selected = src_layer.selectedFeatureCount()
 
             if n_selected == 0:
@@ -1975,11 +2318,14 @@ class UnifiedPluginDialog(QMainWindow):
                 )
                 return input_gpkg
 
-            processing.run("qgis:eliminateselectedpolygons", {
-                'INPUT': src_layer,   # pass the layer object itself — selection lives on it
-                'MODE': 2,            # merge with neighbor sharing the largest boundary
-                'OUTPUT': output_gpkg
-            })
+            processing.run(
+                "qgis:eliminateselectedpolygons",
+                {
+                    "INPUT": src_layer,  # pass the layer object itself — selection lives on it
+                    "MODE": 2,  # merge with neighbor sharing the largest boundary
+                    "OUTPUT": output_gpkg,
+                },
+            )
 
             if os.path.exists(output_gpkg):
                 self.log_eil(
@@ -2010,24 +2356,35 @@ class UnifiedPluginDialog(QMainWindow):
             # before it blocks rather than after it finishes.
             QtWidgets.QApplication.processEvents()
 
-            area_min = 5000 # Hardcoded to match params
+            area_min = 5000  # Hardcoded to match params
 
             # --- Clean Slope Units ---
             raw_su_file = os.path.join(final_output_folder, "Final_SlopeUnits.gpkg")
             final_su_file = raw_su_file
             if os.path.exists(raw_su_file):
                 self.log_eil("--> Erasing tile seams on Slope Units...")
-                cleaned_su_file = os.path.join(final_output_folder, "Cleaned_SlopeUnits.gpkg")
-                final_su_file = self._eliminate_seams(raw_su_file, cleaned_su_file, area_min, "Slope Units")
+                cleaned_su_file = os.path.join(
+                    final_output_folder, "Cleaned_SlopeUnits.gpkg"
+                )
+                final_su_file = self._eliminate_seams(
+                    raw_su_file, cleaned_su_file, area_min, "Slope Units"
+                )
 
-            if os.path.exists(final_su_file) and self.ui_eil.checkBox_LoadResults.isChecked():
+            if (
+                os.path.exists(final_su_file)
+                and self.ui_eil.checkBox_LoadResults.isChecked()
+            ):
                 self.finish_and_load_layer(final_su_file, "EIL Slope Units")
 
             # --- Clean Merged PINN Features ---
             merged_file = os.path.join(final_output_folder, "Merged_PINN_Features.gpkg")
             if os.path.exists(merged_file):
-                cleaned_file = os.path.join(final_output_folder, "Cleaned_PINN_Features.gpkg")
-                merged_file = self._eliminate_seams(merged_file, cleaned_file, area_min, "PINN Features")
+                cleaned_file = os.path.join(
+                    final_output_folder, "Cleaned_PINN_Features.gpkg"
+                )
+                merged_file = self._eliminate_seams(
+                    merged_file, cleaned_file, area_min, "PINN Features"
+                )
 
             # Cancel may have been clicked while seam removal was blocking.
             if not self._eil_running:
@@ -2037,9 +2394,11 @@ class UnifiedPluginDialog(QMainWindow):
             if os.path.exists(merged_file):
                 plugin_dir = os.path.dirname(os.path.abspath(__file__))
                 pinn_script = os.path.join(plugin_dir, "pinn_inference.py")
-                
+
                 if not os.path.exists(self.MODEL_PATH):
-                    self.log_eil(f"\n[WARNING] AI Model not found at: {self.MODEL_PATH}")
+                    self.log_eil(
+                        f"\n[WARNING] AI Model not found at: {self.MODEL_PATH}"
+                    )
                     if self.ui_eil.checkBox_LoadResults.isChecked():
                         self.finish_and_load_layer(merged_file, "Merged PINN Features")
                     self._set_eil_running(False)
@@ -2047,7 +2406,9 @@ class UnifiedPluginDialog(QMainWindow):
                     return
 
                 # Force final map to save directly into the chosen output folder
-                final_ai_map = os.path.join(final_output_folder, "Final_Hazard_Map.gpkg")
+                final_ai_map = os.path.join(
+                    final_output_folder, "Final_Hazard_Map.gpkg"
+                )
 
                 self._set_eil_stage(
                     "Running AI model",
@@ -2056,7 +2417,12 @@ class UnifiedPluginDialog(QMainWindow):
                 )
 
                 self.pinn_worker = PINNPredictionWorker(
-                    self.eil_venv_python, pinn_script, merged_file, self.MODEL_PATH, final_ai_map, self.dem_path_for_taudem
+                    self.eil_venv_python,
+                    pinn_script,
+                    merged_file,
+                    self.MODEL_PATH,
+                    final_ai_map,
+                    self.dem_path_for_taudem,
                 )
                 self.pinn_worker.log.connect(self.log_eil)
                 self.pinn_worker.finished.connect(self.on_pinn_complete)
@@ -2093,15 +2459,23 @@ class UnifiedPluginDialog(QMainWindow):
             return
 
         # Put the ML-DFI temp outputs cleanly inside the user's chosen folder
-        step4_out = os.path.join(self.ui_eil.plainTextEdit_OutputFolder.toPlainText().strip(), "deposition_zone_output")
-        
+        step4_out = os.path.join(
+            self.ui_eil.plainTextEdit_OutputFolder.toPlainText().strip(),
+            "deposition_zone_output",
+        )
+
         step4_wrapper = os.path.join(
-            self._base_dir, "ml_dfi_handoff", "steps", 
-            "step4_deposition_zone", "step4_deposition_zone_mpi_wrapper.py"
+            self._base_dir,
+            "ml_dfi_handoff",
+            "steps",
+            "step4_deposition_zone",
+            "step4_deposition_zone_mpi_wrapper.py",
         )
 
         if not os.path.exists(step4_wrapper):
-            self.log_eil(f"[Warning] Step 4 Wrapper not found. Skipping deposition routing.")
+            self.log_eil(
+                f"[Warning] Step 4 Wrapper not found. Skipping deposition routing."
+            )
             self._set_eil_running(False)
             return
 
@@ -2114,7 +2488,7 @@ class UnifiedPluginDialog(QMainWindow):
                 "\n[Skipped] Depositional routing needs "
                 + ", ".join(m.spec.label for m in missing)
                 + ".\n           See the Dependencies tab to install "
-                  "or locate them, then re-run."
+                "or locate them, then re-run."
             )
             self._set_eil_running(False)
             return
@@ -2126,11 +2500,11 @@ class UnifiedPluginDialog(QMainWindow):
         )
 
         self.deposition_worker = MLDFIDepositionWorker(
-            dem_path=self.dem_path_for_taudem, 
+            dem_path=self.dem_path_for_taudem,
             dfi_tif=overall_tif,
             output_dir=step4_out,
             step4_wrapper_py=step4_wrapper,
-            cores=4
+            cores=4,
         )
         self.deposition_worker.log.connect(self.log_eil)
         self.deposition_worker.progress.connect(self.ui_eil.progressBar.setValue)
@@ -2145,11 +2519,12 @@ class UnifiedPluginDialog(QMainWindow):
 
         if status == "success" and os.path.exists(depositional_mask_path):
             if self.ui_eil.checkBox_LoadResults.isChecked():
-                rlayer = QgsRasterLayer(depositional_mask_path, "ML-DFI Depositional Zone")
+                rlayer = QgsRasterLayer(
+                    depositional_mask_path, "ML-DFI Depositional Zone"
+                )
                 if rlayer.isValid():
                     QgsProject.instance().addMapLayer(rlayer)
                     self.log_eil("--> Loaded into map: ML-DFI Depositional Zone")
-
 
     def finish_and_load_layer(self, layer_path, layer_name):
         if not layer_path or not os.path.exists(layer_path):

@@ -64,7 +64,8 @@ class TestOfflineInstall:
         # Assert
         assert REQUIRED <= set(installed)
         scripts = tmp_path / "scripts"
-        assert (scripts / "r.slopeunits.create.py").is_file()
+        expected = "r.slopeunits.create" + (".py" if pu.IS_WINDOWS else "")
+        assert (scripts / expected).is_file()
 
     def test_installed_addon_is_then_detected(self, tmp_path, monkeypatch):
         # Arrange
@@ -83,8 +84,52 @@ class TestOfflineInstall:
     def test_modules_are_executable_on_posix(self, tmp_path, monkeypatch):
         monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
         ga.install_bundled_addon(PLUGIN_DIR)
-        target = tmp_path / "scripts" / "r.slopeunits.create.py"
+        target = tmp_path / "scripts" / "r.slopeunits.create"
         assert os.stat(target).st_mode & 0o111
+
+    @pytest.mark.skipif(pu.IS_WINDOWS, reason="POSIX lookup rules")
+    def test_scripts_have_no_py_extension_on_posix(self, tmp_path, monkeypatch):
+        # GRASS on POSIX execs `r.slopeunits.create` from PATH by exact name;
+        # only Windows resolves a .py. g.extension installs them the same way.
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+        ga.install_bundled_addon(PLUGIN_DIR)
+        names = os.listdir(tmp_path / "scripts")
+        assert REQUIRED <= set(names)
+        assert not [n for n in names if n.endswith(".py")]
+
+    @pytest.mark.skipif(pu.IS_WINDOWS, reason="POSIX lookup rules")
+    def test_py_suffixed_copy_is_not_reported_installed_on_posix(
+            self, tmp_path, monkeypatch):
+        # Arrange -- what the old installer left behind: GRASS cannot run it.
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(pu, "_ask_grass_for_module", lambda *a, **k: None)
+        pu.clear_module_cache()
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        stale = scripts / "r.slopeunits.create.py"
+        stale.write_text("#!/usr/bin/env python3\n")
+        stale.chmod(0o755)
+
+        # Act / Assert
+        assert not pu.grass_addon_installed("r.slopeunits.create")
+
+    @pytest.mark.skipif(pu.IS_WINDOWS, reason="POSIX lookup rules")
+    def test_ensure_repairs_py_suffixed_install_on_posix(
+            self, tmp_path, monkeypatch):
+        # Arrange
+        monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(pu, "_ask_grass_for_module", lambda *a, **k: None)
+        pu.clear_module_cache()
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        (scripts / "r.slopeunits.create.py").write_text("stale\n")
+
+        # Act
+        ga.ensure_bundled_addon(PLUGIN_DIR)
+
+        # Assert -- runnable name present, misleading leftover gone.
+        assert (scripts / "r.slopeunits.create").is_file()
+        assert not (scripts / "r.slopeunits.create.py").exists()
 
     @pytest.mark.skipif(not pu.IS_WINDOWS, reason="Windows shim")
     def test_bat_shims_are_written_on_windows(self, tmp_path, monkeypatch):

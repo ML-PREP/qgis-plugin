@@ -582,10 +582,11 @@ class TestGrassAddonDetection:
     def test_user_installed_addon_is_found_without_running_grass(
         self, tmp_path, monkeypatch
     ):
-        # Arrange -- the g.extension default location.
+        # Arrange -- the g.extension default location. POSIX installs the
+        # script without its .py; only Windows keeps it.
         scripts = tmp_path / "scripts"
         scripts.mkdir()
-        target = scripts / "r.slopeunits.create.py"
+        target = scripts / ("r.slopeunits.create" + (".py" if pu.IS_WINDOWS else ""))
         target.write_text("# stub\n", encoding="utf-8")
         monkeypatch.setattr(pu, "grass_addon_dir", lambda: str(tmp_path))
 

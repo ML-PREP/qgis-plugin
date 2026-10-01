@@ -578,12 +578,19 @@ def grass_addon_installed(module, grass_exe=None):
         good installation as missing.
     """
     addons = grass_addon_dir()
-    candidates = [
-        os.path.join(addons, "scripts", module + ".py"),
-        os.path.join(addons, "scripts", module),
-        os.path.join(addons, "bin", module + EXE_SUFFIX),
-        os.path.join(addons, "bin", module + ".bat"),
-    ]
+    # Only names GRASS can actually launch count. A `<module>.py` is runnable
+    # on Windows (via the .bat shim) but invisible to GRASS on POSIX.
+    if IS_WINDOWS:
+        candidates = [
+            os.path.join(addons, "scripts", module + ".py"),
+            os.path.join(addons, "bin", module + EXE_SUFFIX),
+            os.path.join(addons, "bin", module + ".bat"),
+        ]
+    else:
+        candidates = [
+            os.path.join(addons, "scripts", module),
+            os.path.join(addons, "bin", module),
+        ]
     hit = next((c for c in candidates if os.path.isfile(c)), None)
     if hit:
         return hit

@@ -72,12 +72,17 @@ def install_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
     installed = []
     for source in modules:
         module = os.path.splitext(os.path.basename(source))[0]
-        target = os.path.join(scripts_dir, os.path.basename(source))
+        # GRASS on POSIX execs a script addon from PATH by its exact module
+        # name, so `r.slopeunits.create.py` is never found there. Only Windows
+        # resolves the .py (through the .bat shim). g.extension does the same.
+        target = os.path.join(
+            scripts_dir, os.path.basename(source) if pu.IS_WINDOWS else module
+        )
 
         try:
             shutil.copy2(source, target)
             if not pu.IS_WINDOWS:
-                # GRASS execs script addons directly on POSIX.
+                _remove_stale_py_copy(scripts_dir, module)
                 current = os.stat(target).st_mode
                 os.chmod(target, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             else:
@@ -91,6 +96,14 @@ def install_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
         installed.append(module)
 
     return installed
+
+
+def _remove_stale_py_copy(scripts_dir, module):
+    """Delete a `<module>.py` left by older installs: GRASS cannot run it on
+    POSIX, and its presence made the addon look installed when it was not."""
+    stale = os.path.join(scripts_dir, module + ".py")
+    if os.path.isfile(stale):
+        os.remove(stale)
 
 
 def bundled_addon_installed():
