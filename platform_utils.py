@@ -373,10 +373,63 @@ def bundled_binary(plugin_dir, name):
     that cannot be repaired is reported as missing rather than handed to a
     worker that will only fail later.
     """
-    path = os.path.join(plugin_dir, "bin", platform_tag(), name + EXE_SUFFIX)
+    path = os.path.join(bundled_dir(plugin_dir), name + EXE_SUFFIX)
     if not os.path.isfile(path):
         return None
     return path if ensure_executable(path) else None
+
+
+def bundled_dir(plugin_dir):
+    """bin/<tag>/ -- where this host's shipped binaries live."""
+    return os.path.join(plugin_dir, "bin", platform_tag())
+
+
+def is_bundled(plugin_dir, path):
+    """True when `path` is one of the binaries shipped in bin/<tag>/."""
+    if not path:
+        return False
+    return (os.path.dirname(os.path.abspath(path))
+            == os.path.abspath(bundled_dir(plugin_dir)))
+
+
+# The bundle's libproj is a fixed release and needs the proj.db written by
+# that same release; build_native.sh ships it here.
+BUNDLED_PROJ_SUBDIR = os.path.join("share", "proj")
+
+
+def bundled_environment(base, plugin_dir):
+    """A copy of `base` for running bundled binaries only.
+
+    Points PROJ_DATA at the shipped proj.db so the bundled libproj finds its
+    own database. Never use it for GRASS, system GDAL or a separately
+    installed TauDEM: their PROJ would reject a database from another release
+    and lose all CRS support. `base` itself is left untouched.
+    """
+    env = dict(base)
+    proj_dir = os.path.join(bundled_dir(plugin_dir), BUNDLED_PROJ_SUBDIR)
+    if os.path.isfile(os.path.join(proj_dir, "proj.db")):
+        env["PROJ_DATA"] = proj_dir
+    return env
+
+
+TAUDEM_KEY = "taudem"
+# Built from the vendored TauDEM sources by build_native.sh and shipped in
+# bin/<tag>/ next to the routing engine (linux_amd64 only so far).
+BUNDLED_TAUDEM_TOOLS = ("pitremove", "dinfflowdir")
+
+
+def find_taudem(name, plugin_dir=None, extra_dirs=None):
+    """Resolve a TauDEM tool: user override, then bundled copy, then system.
+
+    A directory the user picked in the Dependencies panel is an explicit
+    choice and wins. Otherwise the bundled build -- the one tested with the
+    routing engine -- beats whatever TauDEM happens to be on PATH.
+    """
+    if plugin_dir and not _override_dir(TAUDEM_KEY):
+        bundled = bundled_binary(plugin_dir, name)
+        if bundled:
+            return bundled
+    return find_exe(name, TAUDEM_KEY, extra_dirs=extra_dirs)
 
 
 def ensure_executable(path):
@@ -473,7 +526,7 @@ _HINTS = {
     "taudem": {
         "win32": r"Install TauDEM 5.3; the default location is C:\Program Files\TauDEM.",
         "darwin": "Build TauDEM from source, or install it into ~/.mlprep_envs/venv/bin.",
-        "linux": "Build TauDEM from source, or install your distribution's taudem package.",
+        "linux": "Bundled with the plugin. Reinstall it, or run ./build_native.sh linux.",
     },
     "grass": {
         "win32": r"Run scripts\install_grass_windows.bat, or install GRASS GIS 8.x "
@@ -522,9 +575,9 @@ REQUIRED_TOOLS = [
              FEATURE_EIL, _hint("gdal")),
     ToolSpec("mpiexec", "mpiexec", "MPI launcher",
              FEATURE_DEPOSITION, _hint("mpiexec")),
-    ToolSpec("taudem", "pitremove", "TauDEM (pitremove)",
+    ToolSpec(TAUDEM_KEY, "pitremove", "TauDEM (pitremove)",
              FEATURE_DEPOSITION, _hint("taudem")),
-    ToolSpec("taudem", "dinfflowdir", "TauDEM (dinfflowdir)",
+    ToolSpec(TAUDEM_KEY, "dinfflowdir", "TauDEM (dinfflowdir)",
              FEATURE_DEPOSITION, _hint("taudem")),
 ]
 
@@ -704,16 +757,20 @@ PYTHON_ENVS = [
 ]
 
 
+def _resolve_tool(spec, plugin_dir, extra_dirs):
+    if spec.key == TAUDEM_KEY:
+        return find_taudem(spec.name, plugin_dir, extra_dirs=extra_dirs)
+    return find_exe(spec.name, spec.key, extra_dirs=extra_dirs)
+
+
 def check_dependencies(plugin_dir=None):
     """Resolve every external dependency. Returns a list of ToolStatus.
 
     Pass `plugin_dir` to also report the bundled engines.
     """
     extra = qgis_bin_dirs()
-    statuses = [
-        ToolStatus(spec, find_exe(spec.name, spec.key, extra_dirs=extra))
-        for spec in REQUIRED_TOOLS
-    ]
+    statuses = [ToolStatus(spec, _resolve_tool(spec, plugin_dir, extra))
+                for spec in REQUIRED_TOOLS]
 
     for module in GRASS_ADDON_MODULES:
         spec = ToolSpec(

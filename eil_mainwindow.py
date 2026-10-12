@@ -212,7 +212,7 @@ class Ui_MainWindow(object):
         self.layout_Middle1 = QtWidgets.QVBoxLayout(self.frame_Middle1)
 
         self.label_TableTitle = QtWidgets.QLabel(
-            "Top 10 Hazardous Municipalities", self.frame_Middle1
+            "Top 10 Most Landslide Susceptible Municipalities", self.frame_Middle1
         )
         self.label_TableTitle.setStyleSheet(
             "font-weight: bold; font-size: 14px; color: black; margin-bottom: 5px;"

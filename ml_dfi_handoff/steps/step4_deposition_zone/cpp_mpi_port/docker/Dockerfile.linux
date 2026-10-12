@@ -1,4 +1,4 @@
-# Build the Step 4 MPI engine for linux/amd64.
+# Build the Step 4 MPI engine and the two TauDEM tools it needs for linux/amd64.
 # Bookworm is deliberately old: glibc 2.36 keeps the binary usable on older
 # distributions than the build host.
 FROM debian:bookworm
@@ -11,6 +11,7 @@ WORKDIR /src
 COPY . /src
 
 RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
+        -DMLPREP_BUILD_TAUDEM_TOOLS=ON \
  && cmake --build build-linux --parallel
 
 # Bundle GDAL and its dependency closure, but deliberately NOT:
@@ -26,13 +27,23 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
 #
 # Every bundled library also gets $ORIGIN, not just the executable: a library
 # loaded out of lib/ resolves its OWN dependencies through its own rpath.
+#
+# The bundled libproj needs the proj.db from the same PROJ release (9.1 here);
+# without it CRS lookups fail and outputs lose their EPSG code. The plugin
+# points PROJ_DATA at share/proj for these binaries only (bundled_environment).
+#
+# pitremove and dinfflowdir (TauDEM) link the same GDAL, so all three
+# executables share one lib/ directory.
+ARG BINARIES="step4_deposition_zone_mpi pitremove dinfflowdir"
 RUN mkdir -p /out/lib \
- && cp build-linux/step4_deposition_zone_mpi /out/ \
- && ldd /out/step4_deposition_zone_mpi \
-      | awk '/=> \//{print $3}' \
+ && for bin in $BINARIES; do cp build-linux/$bin /out/; done \
+ && for bin in $BINARIES; do ldd /out/$bin; done \
+      | awk '/=> \//{print $3}' | sort -u \
       | grep -vE '/(libc|libm|libpthread|libdl|librt|ld-linux)[.-]' \
       | grep -vE '/(libmpi|libmpi_cxx|libstdc\+\+|libgcc_s|libopen-pal|libopen-rte)[.-]' \
       | xargs -I{} cp -Lv {} /out/lib/ \
- && patchelf --set-rpath '$ORIGIN/lib' /out/step4_deposition_zone_mpi \
+ && for bin in $BINARIES; do patchelf --set-rpath '$ORIGIN/lib' /out/$bin; done \
  && for lib in /out/lib/*.so*; do patchelf --set-rpath '$ORIGIN' "$lib"; done \
+ && mkdir -p /out/share/proj \
+ && cp -v /usr/share/proj/proj.db /usr/share/proj/proj.ini /out/share/proj/ \
  && echo "--- bundled: $(ls /out/lib | wc -l) libraries ---"

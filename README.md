@@ -26,7 +26,7 @@ copy that lives somewhere unusual (the location is remembered).
 | GRASS GIS 8.x | EIL hazard mapping | `scripts/install_grass.sh` (Homebrew) | `scripts\install_grass_windows.bat` | `scripts/install_grass.sh` |
 | GDAL | EIL hazard mapping | supplied by QGIS, or `brew install gdal` | supplied by QGIS/OSGeo4W | `apt install gdal-bin` |
 | MPI | Depositional routing | `brew install open-mpi` | [MS-MPI](https://learn.microsoft.com/message-passing-interface/microsoft-mpi) | `apt install openmpi-bin` |
-| TauDEM | Depositional routing | build from source | TauDEM 5.3 installer | build from source |
+| TauDEM | Depositional routing | build from source | TauDEM 5.3 installer | **bundled** (`pitremove`, `dinfflowdir` in `bin/linux_amd64/`) |
 
 **GRASS and its `r.slopeunits` addon are required before the plugin will
 finish setting up.** If either is missing when the plugin opens, a blocking
@@ -133,16 +133,17 @@ virtualenv, `__pycache__`, `.git` or build tree leaks into the package.
 |---|---|
 | `darwin_arm64` | `./build_native.sh host` on Apple Silicon |
 | `linux_amd64` | `./build_native.sh linux` (Docker, Debian 12) |
-| `darwin_amd64` | CI only — `macos-13` runner, see `.github/workflows/` |
-| `windows_amd64` | prebuilt, vendored from `build_manual/`; rebuild with `build_manual_msvc.ps1` (needs MSVC + MS-MPI) |
+| `darwin_amd64` | not built yet (needs an Intel Mac) |
+| `windows_amd64` | CI — the `windows-native` job in `.github/workflows/ci.yml` builds the engine **and** `pitremove`/`dinfflowdir`, bundles their DLLs + `proj.db`, smoke-tests them under MS-MPI, and uploads `bin-windows_amd64`. Unzip it into `bin/windows_amd64/` before `build_release.sh`. (Fallback: the old prebuilt engine from `build_manual/`, no TauDEM, no DLLs.) |
 
 macOS and Linux builds bundle GDAL and its dependencies alongside the binary, so
 they do not care which GDAL the user has. MPI and the C++ runtime are
 deliberately **not** bundled — the binary is launched by the host's `mpiexec`,
 and a bundled MPI that disagrees with the host launcher fails at startup.
 
-The Windows engine ships **without** bundled DLLs and relies on the host's GDAL
-and MS-MPI.
+The CI-built Windows bundle puts its DLLs beside the `.exe` files (Windows has
+no rpath; a process searches its own directory first). `msmpi.dll` is
+excluded for the same reason as MPI above.
 
 ---
 

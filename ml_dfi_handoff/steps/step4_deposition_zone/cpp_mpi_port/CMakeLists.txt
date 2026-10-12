@@ -43,3 +43,38 @@ endif()
 if(MSVC)
     target_compile_definitions(step4_deposition_zone_mpi PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
+
+# The two TauDEM tools the plugin runs before Step 4 (pit filling and
+# D-infinity flow direction). Shipping them with the engine removes TauDEM as
+# a separate install. Off by default: only the Linux build enables it so far.
+option(MLPREP_BUILD_TAUDEM_TOOLS "Build pitremove and dinfflowdir" OFF)
+
+function(add_taudem_tool name)
+    add_executable(${name} ${ARGN}
+        "${TAUDEM_SRC_DIR}/commonLib.cpp"
+        "${TAUDEM_SRC_DIR}/tiffIO.cpp"
+    )
+    target_include_directories(${name} PRIVATE "${TAUDEM_SRC_DIR}")
+    target_link_libraries(${name} PRIVATE MPI::MPI_CXX)
+    if(TARGET GDAL::GDAL)
+        target_link_libraries(${name} PRIVATE GDAL::GDAL)
+    else()
+        target_include_directories(${name} PRIVATE ${GDAL_INCLUDE_DIR})
+        target_link_libraries(${name} PRIVATE ${GDAL_LIBRARY})
+    endif()
+    if(MSVC)
+        target_compile_definitions(${name} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endfunction()
+
+if(MLPREP_BUILD_TAUDEM_TOOLS)
+    add_taudem_tool(pitremove
+        "${TAUDEM_SRC_DIR}/PitRemovemn.cpp"
+        "${TAUDEM_SRC_DIR}/flood.cpp"
+    )
+    add_taudem_tool(dinfflowdir
+        "${TAUDEM_SRC_DIR}/DinfFlowDirmn.cpp"
+        "${TAUDEM_SRC_DIR}/dinf.cpp"
+        "${TAUDEM_SRC_DIR}/Node.cpp"
+    )
+endif()

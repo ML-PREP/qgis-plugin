@@ -32,6 +32,7 @@ done
 # and one user's home directory, and is 1.7 GB.
 EXCLUDES=(
   "venv/"
+  "eil_venv/"
   "ls_detect_env/"
   "dist/"
   "__pycache__/"
@@ -77,7 +78,9 @@ REQUIRED=(
   "metadata.txt"
   "__init__.py"
   "mainPlugin.py"
-  "merged_wrapper.py"
+  "app/main_window.py"
+  "landslide/tab.py"
+  "eil/tab.py"
   "platform_utils.py"
   "dependency_panel.py"
   "busy_overlay.py"

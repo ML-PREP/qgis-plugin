@@ -116,17 +116,26 @@ class GrassRequiredDialog(QtWidgets.QDialog):
             pu.clear_module_cache()
             grass, addon_ready = grass_addons.grass_setup_status()
 
-        self._show_status(self.status_grass, grass,
-                          f"GRASS found: {grass}", "GRASS GIS not found yet.")
-        self._show_status(self.status_addon, addon_ready,
-                          "r.slopeunits addon installed.",
-                          "r.slopeunits addon not installed yet.")
+        self._show_status(
+            self.status_grass,
+            grass,
+            f"GRASS found: {grass}",
+            "GRASS GIS not found yet.",
+        )
+        self._show_status(
+            self.status_addon,
+            addon_ready,
+            "r.slopeunits addon installed.",
+            "r.slopeunits addon not installed yet.",
+        )
 
         installer_running = self._process is not None
-        self.button_continue.setEnabled(bool(grass) and addon_ready
-                                        and not installer_running)
-        self.button_install.setEnabled(not (grass and addon_ready)
-                                       and not installer_running)
+        self.button_continue.setEnabled(
+            bool(grass) and addon_ready and not installer_running
+        )
+        self.button_install.setEnabled(
+            not (grass and addon_ready) and not installer_running
+        )
 
     def _full_recheck(self):
         """Re-check, discarding cached answers from GRASS."""
@@ -138,8 +147,6 @@ class GrassRequiredDialog(QtWidgets.QDialog):
         label.setText(f"✓ {ok_text}" if is_ok else f"✗ {missing_text}")
         color = COLOR_OK if is_ok else COLOR_MISSING
         label.setStyleSheet(f"color: {color}; font-weight: bold;")
-
-    # ----------------------------------------------------------- installer
 
     def _run_installer(self):
         command = pu.grass_installer_command(self._plugin_dir)
@@ -190,9 +197,10 @@ class GrassRequiredDialog(QtWidgets.QDialog):
         self._read_installer_output()
         self._process = None
         self._append_log(
-            "\nInstaller finished successfully.\n" if exit_code == 0
+            "\nInstaller finished successfully.\n"
+            if exit_code == 0
             else f"\nInstaller exited with code {exit_code}. "
-                 "See the messages above.\n"
+            "See the messages above.\n"
         )
         self._full_recheck()
 
@@ -201,8 +209,9 @@ class GrassRequiredDialog(QtWidgets.QDialog):
         # by finished(), which does the cleanup.
         if error != QProcess.FailedToStart or self._process is None:
             return
-        self._append_log(f"\nCould not start the installer: "
-                         f"{self._process.errorString()}\n")
+        self._append_log(
+            f"\nCould not start the installer: " f"{self._process.errorString()}\n"
+        )
         self._process = None
         self.recheck()
 
@@ -213,8 +222,11 @@ class GrassRequiredDialog(QtWidgets.QDialog):
             self,
             "Locate GRASS GIS",
             "",
-            "GRASS launcher (*.bat *.exe);;All files (*)" if pu.IS_WINDOWS
-            else "All files (*)",
+            (
+                "GRASS launcher (*.bat *.exe);;All files (*)"
+                if pu.IS_WINDOWS
+                else "All files (*)"
+            ),
         )
         if not path:
             return

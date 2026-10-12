@@ -1,5 +1,6 @@
 # Study-area boundary data (large, redistributed separately)
 roi_data/*
+eil_venv/
 
 # Managed environments are created at runtime under ~/.mlprep_envs.
 # A virtualenv inside the plugin is machine-specific and must never ship.
@@ -34,3 +35,6 @@ mlprep-carsu.pub
 id_rsa*
 id_ed25519*
 *.pem
+
+# Pipeline run outputs (GeoPackages can be ~1 GB; over GitHub's 100 MB limit)
+run_*/
