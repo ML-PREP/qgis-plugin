@@ -18,6 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -38,33 +40,44 @@ jobs:
       OUT: bin/windows_amd64
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # MS-MPI runtime (mpiexec) + SDK (headers, msmpi.lib for CMake's FindMPI).
       - uses: mpi4py/setup-mpi@v1
         with:
           mpi: msmpi
 
+      # Puts whichever MSVC the runner image has on PATH. Paired with Ninja
+      # below, nothing names a Visual Studio version, so image upgrades
+      # (VS 2022 -> 2026) do not break the build.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       # Prebuilt GDAL/PROJ from conda-forge, plus GDAL's Python bindings for
-      # the smoke test and pefile for the DLL bundler.
+      # the smoke test, pefile for the DLL bundler, and the build tools.
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-name: build
           init-shell: powershell
           create-args: >-
-            python=3.12 libgdal-core gdal numpy pefile
+            python=3.12 libgdal-core gdal numpy pefile cmake ninja
 
       - name: Build
         run: |
-          cmake -S $env:SRC -B build -G "Visual Studio 17 2022" -A x64 `
+          cmake -S $env:SRC -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
             -DMLPREP_BUILD_TAUDEM_TOOLS=ON `
             -DCMAKE_PREFIX_PATH="$env:CONDA_PREFIX\Library"
-          cmake --build build --config Release --parallel
+          cmake --build build --parallel
 
       - name: Bundle DLLs and proj.db
         run: |
           New-Item -ItemType Directory -Force $env:OUT | Out-Null
           foreach ($exe in "step4_deposition_zone_mpi", "pitremove", "dinfflowdir") {
-            Copy-Item "build/Release/$exe.exe" $env:OUT
+            Copy-Item "build/$exe.exe" $env:OUT
           }
           python scripts/bundle_windows_deps.py `
             --search-dir "$env:CONDA_PREFIX\Library\bin" `
