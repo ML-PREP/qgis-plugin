@@ -32,6 +32,7 @@ done
 # and one user's home directory, and is 1.7 GB.
 EXCLUDES=(
   "venv/"
+  "eil_venv/"
   "ls_detect_env/"
   "dist/"
   "__pycache__/"
@@ -53,6 +54,12 @@ EXCLUDES=(
   "build-*/"
   "build_manual/"
   "docker/"
+  # Credentials must never ship, even if one lands in the working tree again.
+  "mlprep-carsu"
+  "mlprep-carsu.pub"
+  "id_rsa*"
+  "id_ed25519*"
+  "*.pem"
 )
 [ "$INCLUDE_ROI" -eq 0 ] && EXCLUDES+=("roi_data/")
 
@@ -71,12 +78,16 @@ REQUIRED=(
   "metadata.txt"
   "__init__.py"
   "mainPlugin.py"
-  "merged_wrapper.py"
+  "app/main_window.py"
+  "landslide/tab.py"
+  "eil/tab.py"
   "platform_utils.py"
   "dependency_panel.py"
   "busy_overlay.py"
   "grass_addons.py"
   "grass_gate.py"
+  "scripts/install_grass.sh"
+  "scripts/install_grass_windows.bat"
 )
 
 echo "Packaging $PLUGIN_NAME"
@@ -131,6 +142,14 @@ leaked=$(find "$STAGE" \( -name "pyvenv.cfg" -o -name "__pycache__" -o -name ".D
                        -o -name "build-*" -o -name "build_manual" \) -print -quit)
 if [ -n "$leaked" ]; then
   echo "error: excluded content leaked into the package: $leaked" >&2
+  exit 1
+fi
+
+# Catch credentials by content, not just by name: a renamed key still leaks.
+# grep exits 1 on no match, which set -o pipefail would turn into a silent abort.
+key_file=$(grep -rlI -e "-----BEGIN [A-Z ]*PRIVATE KEY-----" "$STAGE" 2>/dev/null | head -1 || true)
+if [ -n "$key_file" ]; then
+  echo "error: private key found in the package: $key_file" >&2
   exit 1
 fi
 

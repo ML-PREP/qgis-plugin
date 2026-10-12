@@ -34,6 +34,11 @@ EXE_SUFFIX = ".exe" if IS_WINDOWS else ""
 
 SETTINGS_PREFIX = "mlprep/exe"
 
+# Root of everything the plugin installs for itself: the two virtualenvs and,
+# on macOS, the conda-forge GRASS that scripts/install_grass.sh creates.
+ENVS_DIR = os.path.join(os.path.expanduser("~"), ".mlprep_envs")
+GRASS_ENV_DIR = os.path.join(ENVS_DIR, "grass")
+
 # Environment variables handed to the bundled Go engine so it reuses the
 # executables this module already resolved instead of re-deriving them.
 ENV_GRASS_EXE = "MLPREP_GRASS_EXE"
@@ -63,6 +68,8 @@ _SEARCH_DIRS = {
         r"C:\Program Files\QGIS *\apps\grass\grass*\bin",
     ],
     "darwin": [
+        # Created by scripts/install_grass.sh (Homebrew micromamba + conda-forge).
+        os.path.join(GRASS_ENV_DIR, "bin"),
         "/opt/homebrew/bin",
         "/usr/local/bin",
         "/usr/local/taudem",
@@ -206,8 +213,6 @@ def gdal_bin_dir():
 # ---------------------------------------------------------------------------
 # Managed virtualenvs — single source of truth
 # ---------------------------------------------------------------------------
-
-ENVS_DIR = os.path.join(os.path.expanduser("~"), ".mlprep_envs")
 
 
 def base_python():
@@ -368,10 +373,63 @@ def bundled_binary(plugin_dir, name):
     that cannot be repaired is reported as missing rather than handed to a
     worker that will only fail later.
     """
-    path = os.path.join(plugin_dir, "bin", platform_tag(), name + EXE_SUFFIX)
+    path = os.path.join(bundled_dir(plugin_dir), name + EXE_SUFFIX)
     if not os.path.isfile(path):
         return None
     return path if ensure_executable(path) else None
+
+
+def bundled_dir(plugin_dir):
+    """bin/<tag>/ -- where this host's shipped binaries live."""
+    return os.path.join(plugin_dir, "bin", platform_tag())
+
+
+def is_bundled(plugin_dir, path):
+    """True when `path` is one of the binaries shipped in bin/<tag>/."""
+    if not path:
+        return False
+    return (os.path.dirname(os.path.abspath(path))
+            == os.path.abspath(bundled_dir(plugin_dir)))
+
+
+# The bundle's libproj is a fixed release and needs the proj.db written by
+# that same release; build_native.sh ships it here.
+BUNDLED_PROJ_SUBDIR = os.path.join("share", "proj")
+
+
+def bundled_environment(base, plugin_dir):
+    """A copy of `base` for running bundled binaries only.
+
+    Points PROJ_DATA at the shipped proj.db so the bundled libproj finds its
+    own database. Never use it for GRASS, system GDAL or a separately
+    installed TauDEM: their PROJ would reject a database from another release
+    and lose all CRS support. `base` itself is left untouched.
+    """
+    env = dict(base)
+    proj_dir = os.path.join(bundled_dir(plugin_dir), BUNDLED_PROJ_SUBDIR)
+    if os.path.isfile(os.path.join(proj_dir, "proj.db")):
+        env["PROJ_DATA"] = proj_dir
+    return env
+
+
+TAUDEM_KEY = "taudem"
+# Built from the vendored TauDEM sources by build_native.sh and shipped in
+# bin/<tag>/ next to the routing engine (linux_amd64 only so far).
+BUNDLED_TAUDEM_TOOLS = ("pitremove", "dinfflowdir")
+
+
+def find_taudem(name, plugin_dir=None, extra_dirs=None):
+    """Resolve a TauDEM tool: user override, then bundled copy, then system.
+
+    A directory the user picked in the Dependencies panel is an explicit
+    choice and wins. Otherwise the bundled build -- the one tested with the
+    routing engine -- beats whatever TauDEM happens to be on PATH.
+    """
+    if plugin_dir and not _override_dir(TAUDEM_KEY):
+        bundled = bundled_binary(plugin_dir, name)
+        if bundled:
+            return bundled
+    return find_exe(name, TAUDEM_KEY, extra_dirs=extra_dirs)
 
 
 def ensure_executable(path):
@@ -419,9 +477,16 @@ def tool_environment(base=None):
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
 
-    grass = find_exe("grass", "grass")
+    # The same lookup as the setup gate, so the engine and the installer
+    # scripts use the very GRASS the gate approved (including QGIS's own copy).
+    grass = find_grass()
     if grass:
         env[ENV_GRASS_EXE] = grass
+
+    # Every GRASS the plugin starts must search the directory the plugin
+    # installs addons into. GRASS's own default differs on macOS
+    # (~/Library/GRASS/<ver>/Addons), where r.slopeunits was then "not found".
+    env["GRASS_ADDON_BASE"] = grass_addon_dir()
 
     gdal_dir = gdal_bin_dir()
     if gdal_dir:
@@ -461,12 +526,14 @@ _HINTS = {
     "taudem": {
         "win32": r"Install TauDEM 5.3; the default location is C:\Program Files\TauDEM.",
         "darwin": "Build TauDEM from source, or install it into ~/.mlprep_envs/venv/bin.",
-        "linux": "Build TauDEM from source, or install your distribution's taudem package.",
+        "linux": "Bundled with the plugin. Reinstall it, or run ./build_native.sh linux.",
     },
     "grass": {
-        "win32": "Install GRASS GIS 8.x (standalone installer or OSGeo4W).",
-        "darwin": "Install GRASS GIS 8.x into /Applications.",
-        "linux": "sudo apt install grass   (or your distribution's equivalent)",
+        "win32": r"Run scripts\install_grass_windows.bat, or install GRASS GIS 8.x "
+                 "(standalone installer or OSGeo4W).",
+        "darwin": "Run scripts/install_grass.sh (installs GRASS through Homebrew "
+                  "micromamba into ~/.mlprep_envs/grass).",
+        "linux": "Run scripts/install_grass.sh, or: sudo apt install grass",
     },
     "gdal": {
         "win32": "Normally supplied by QGIS/OSGeo4W. Reinstall QGIS if it is absent.",
@@ -508,9 +575,9 @@ REQUIRED_TOOLS = [
              FEATURE_EIL, _hint("gdal")),
     ToolSpec("mpiexec", "mpiexec", "MPI launcher",
              FEATURE_DEPOSITION, _hint("mpiexec")),
-    ToolSpec("taudem", "pitremove", "TauDEM (pitremove)",
+    ToolSpec(TAUDEM_KEY, "pitremove", "TauDEM (pitremove)",
              FEATURE_DEPOSITION, _hint("taudem")),
-    ToolSpec("taudem", "dinfflowdir", "TauDEM (dinfflowdir)",
+    ToolSpec(TAUDEM_KEY, "dinfflowdir", "TauDEM (dinfflowdir)",
              FEATURE_DEPOSITION, _hint("taudem")),
 ]
 
@@ -566,6 +633,32 @@ def grass_addon_dir():
     return os.path.join(os.path.expanduser("~"), ".grass8", "addons")
 
 
+# One installer per platform family, both under scripts/. Each installs GRASS
+# when missing and then the r.slopeunits addon, and exits 0 only when both are
+# present -- the GRASS setup dialog runs them and re-checks afterwards.
+GRASS_INSTALLER_DIR = "scripts"
+GRASS_ADDON_ONLY_FLAG = "/addon-only" if IS_WINDOWS else "--addon-only"
+
+
+def grass_installer_script_name():
+    return "install_grass_windows.bat" if IS_WINDOWS else "install_grass.sh"
+
+
+def grass_installer_command(plugin_dir):
+    """`[program, *args]` that runs this platform's GRASS installer.
+
+    Returns None when the script is missing from the plugin directory, so the
+    caller can say so instead of failing to launch it.
+    """
+    script = os.path.join(plugin_dir, GRASS_INSTALLER_DIR, grass_installer_script_name())
+    if not os.path.isfile(script):
+        return None
+
+    # Run through the interpreter explicitly: a zip-extracted plugin loses the
+    # executable bit, and a .bat is not directly executable without cmd.
+    return ["cmd.exe", "/c", script] if IS_WINDOWS else ["/bin/bash", script]
+
+
 def grass_addon_installed(module, grass_exe=None):
     """Where a GRASS addon module lives, or None.
 
@@ -617,7 +710,12 @@ def _ask_grass_for_module(module, grass_exe=None):
     )
     try:
         result = subprocess.run(
-            [grass_exe, "--tmp-project", "EPSG:4326", "--exec", "python", "-c", probe],
+            # --tmp-location, not --tmp-project: the latter is GRASS 8.4+ only,
+            # and Ubuntu 24.04 still ships 8.3 (where it exits 2).
+            # python3 off Windows: Ubuntu and macOS have no bare `python`.
+            # Same choice as toolpath.GrassPython() in the Go engine.
+            [grass_exe, "--tmp-location", "EPSG:4326", "--exec",
+             "python" if IS_WINDOWS else "python3", "-c", probe],
             capture_output=True, timeout=120, env=tool_environment(),
             **subprocess_kwargs()
         )
@@ -659,22 +757,26 @@ PYTHON_ENVS = [
 ]
 
 
+def _resolve_tool(spec, plugin_dir, extra_dirs):
+    if spec.key == TAUDEM_KEY:
+        return find_taudem(spec.name, plugin_dir, extra_dirs=extra_dirs)
+    return find_exe(spec.name, spec.key, extra_dirs=extra_dirs)
+
+
 def check_dependencies(plugin_dir=None):
     """Resolve every external dependency. Returns a list of ToolStatus.
 
     Pass `plugin_dir` to also report the bundled engines.
     """
     extra = qgis_bin_dirs()
-    statuses = [
-        ToolStatus(spec, find_exe(spec.name, spec.key, extra_dirs=extra))
-        for spec in REQUIRED_TOOLS
-    ]
+    statuses = [ToolStatus(spec, _resolve_tool(spec, plugin_dir, extra))
+                for spec in REQUIRED_TOOLS]
 
     for module in GRASS_ADDON_MODULES:
         spec = ToolSpec(
             "grass_addon", module, f"GRASS addon: {module}", FEATURE_EIL,
             "Install with:  g.extension extension=r.slopeunits\n"
-            "On Windows use scripts/install_grass_windows.bat /addon-only",
+            f"Or run:  {grass_installer_script_name()} {GRASS_ADDON_ONLY_FLAG}",
         )
         statuses.append(ToolStatus(spec, grass_addon_installed(module)))
 

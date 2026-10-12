@@ -527,7 +527,7 @@ centralized. New/changed files:
 | `ml-prep-scripts/toolpath/command_other.go` | **new** — POSIX passthrough |
 | `ml-prep-scripts/main.go` | bash heredoc → GRASS Python script; GRASS/GDAL via `toolpath` |
 | `ml-prep-scripts/internals/gpkgtogif/gpkgtogif.go` | GDAL tools via `toolpath` |
-| `merged_wrapper.py` | TauDEM/MPI via `find_exe`; `go run .` → bundled binary; `tool_environment()` |
+| `eil/workers/` (was `merged_wrapper.py`) | TauDEM/MPI via `find_exe`; `go run .` → bundled binary; `tool_environment()` |
 | `build_binaries.sh` | **new** — cross-compiles the engine for all four targets |
 | `bin/<goos>_<goarch>/zonal[.exe]` | **new** — shipped engine binaries |
 | `ml-prep-scripts/toolpath/toolpath_test.go` | **new** — 9 tests |
@@ -549,7 +549,7 @@ unrelated `gdalwarp` earlier on `PATH`.
 |------|------|
 | `dependency_panel.py` | **new** — `DependencyPanel`: ✓/✗ table, per-tool Browse… override, Re-check, feature-scoped readiness |
 | `platform_utils.py` | tool registry became `ToolSpec`/`ToolStatus` with a `feature` and a per-platform install `hint`; overrides now store a *directory* |
-| `merged_wrapper.py` | "Dependencies" tab; EIL Run disabled when unready; deposition skipped with a logged reason |
+| `app/main_window.py`, `eil/tab.py`, `eil/pipeline.py` (was `merged_wrapper.py`) | "Dependencies" tab; EIL Run disabled when unready; deposition skipped with a logged reason |
 
 Tools are grouped by pipeline (`FEATURE_EIL`, `FEATURE_DEPOSITION`) so a missing
 GRASS blocks EIL Hazard Mapping while leaving Landslide Detection — which uses
@@ -582,7 +582,7 @@ stage. Verified: the produced zip contains 0 offending entries and all four engi
 binaries.
 
 **Known packaging issue (Phase 6):** the release is **97 MB without `roi_data/`
-and ~1.5 GB with it**. `roi_data/` is used at runtime (`merged_wrapper.py:721`)
+and ~1.5 GB with it**. `roi_data/` is used at runtime (`common/roi.py`)
 so it cannot simply be dropped; `--no-roi` exists but leaves the ROI dropdown
 empty. This needs a real answer — a separate download, or a trimmed boundary set.
 
@@ -635,6 +635,11 @@ Windows long-path enablement, and the known gaps.
 **The two hardware-blocked rows are now CI jobs**
 (`.github/workflows/plugin-cross-platform.yml`):
 
+> **Correction (2026-10-12):** that workflow file was never committed — it is
+> absent from the tree and from git history, so none of the jobs below ever
+> ran. It is replaced by `.github/workflows/ci.yml` (Python tests on all three
+> OSes + a Windows build of the engine and bundled TauDEM tools).
+
 | Job | Runner | Covers |
 |---|---|---|
 | `tests` | windows / ubuntu / macos | Go + Python suites on real Windows — the 11 Windows-only branches finally execute |
@@ -656,6 +661,31 @@ only its own outputs.
 **Still genuinely unverified:** the plugin has never been loaded in QGIS on
 Windows. CI covers the unit level and that the engines start; it has no QGIS,
 GRASS or TauDEM, so the end-to-end Windows pipeline remains untested.
+
+**2026-10-12 — TauDEM bundled on Linux (prototype); proj.db shipped.**
+
+`pitremove` and `dinfflowdir` are built from vendored TauDEM 5.5.0 sources by
+`build_native.sh linux` and share the engine's `lib/` (no new libraries, ~175 KB
+each). `find_taudem()` prefers a user override, then the bundle, then a system
+install. Verified on clean Ubuntu 24.04 (OpenMPI only, no GDAL): pits filled,
+`-n 1` and `-n 2` bit-identical.
+
+The same test showed every bundled output **lost its EPSG code**: the bundled
+libproj had no `proj.db` ("Cannot find proj.db"). The Linux bundle now ships
+`share/proj/proj.db` (PROJ 9.1, 8 MB) and `bundled_environment()` sets
+`PROJ_DATA` for bundled binaries **only**. Handing it to anything else is
+actively harmful — confirmed: Ubuntu 24.04's PROJ 9.4 given that database
+fails with "DATABASE.LAYOUT.VERSION.MINOR = 2 whereas a number >= 3 is
+expected", so GRASS and system GDAL must keep `tool_environment()` unchanged.
+
+**Open, found by the same test:**
+- The Linux bundle does **not** start on glibc < 2.36 (Ubuntu 22.04): the
+  bundled `libexpat`/`libresolv` from Debian 12 require it. Pre-existing — the
+  engine build from 2026-09-08 fails identically. The "older distributions"
+  claim in `Dockerfile.linux` is wrong until this is fixed.
+- The `darwin_arm64` bundle ships `libproj.25.dylib` without `proj.db`, so the
+  macOS engine has the same EPSG loss. `bundled_environment()` already handles
+  it once `build_host` copies `share/proj`.
 
 ---
 
@@ -752,7 +782,7 @@ External tools the plugin requires, and where they come from per platform.
 |------|-------|---------|-------|----------|
 | Python 3 | QGIS-bundled | QGIS-bundled | system | no (venv created at runtime) |
 | MPI | Homebrew `open-mpi` | MS-MPI | `openmpi-bin` | no |
-| TauDEM | Homebrew / manual | TauDEM installer | manual build | no |
+| TauDEM | manual build (no Homebrew formula) | TauDEM installer | bundled (`pitremove`, `dinfflowdir`) | **Linux only** (prototype) |
 | GRASS GIS 8.x | `.app` bundle | OSGeo4W / standalone | distro package | no |
 | GDAL CLI | Homebrew / QGIS | OSGeo4W / QGIS | distro / QGIS | no (use QGIS's) |
 | `r.slopeunits` addon | `g.extension` | `g.extension` | `g.extension` | no |

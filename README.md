@@ -23,27 +23,45 @@ copy that lives somewhere unusual (the location is remembered).
 
 | Program | Needed for | macOS | Windows | Linux |
 |---|---|---|---|---|
-| GRASS GIS 8.x | EIL hazard mapping | download to `/Applications` | standalone installer or OSGeo4W | `apt install grass` |
+| GRASS GIS 8.x | EIL hazard mapping | `scripts/install_grass.sh` (Homebrew) | `scripts\install_grass_windows.bat` | `scripts/install_grass.sh` |
 | GDAL | EIL hazard mapping | supplied by QGIS, or `brew install gdal` | supplied by QGIS/OSGeo4W | `apt install gdal-bin` |
 | MPI | Depositional routing | `brew install open-mpi` | [MS-MPI](https://learn.microsoft.com/message-passing-interface/microsoft-mpi) | `apt install openmpi-bin` |
-| TauDEM | Depositional routing | build from source | TauDEM 5.3 installer | build from source |
+| TauDEM | Depositional routing | build from source | TauDEM 5.3 installer | **bundled** (`pitremove`, `dinfflowdir` in `bin/linux_amd64/`) |
 
-**GRASS is required before the plugin will finish setting up.** If it is not
-detected when the plugin opens, a blocking *GRASS GIS Required* dialog appears.
-Continue stays disabled until GRASS is found; the dialog re-checks every few
-seconds, and *Locate GRASS…* accepts a copy installed somewhere unusual.
-Closing the dialog closes the plugin. GDAL, MPI and TauDEM only block the
-pipelines that use them.
+**GRASS and its `r.slopeunits` addon are required before the plugin will
+finish setting up.** If either is missing when the plugin opens, a blocking
+*GRASS GIS Setup Required* dialog appears with a ✓ / ✗ row for each:
 
-The `r.slopeunits` GRASS addon is installed automatically during setup, from
-the copy bundled in `vendor/grass_addons/` (no network needed). To install it
-by hand instead:
+- **Install automatically** runs the platform installer script (below) and
+  shows its output in the dialog.
+- **Continue** stays disabled until *both* GRASS and the addon are detected.
+  The dialog re-checks every few seconds, so installing by hand also unlocks it.
+- **Locate GRASS…** accepts a copy installed somewhere unusual.
+- **Close Plugin** closes the plugin.
 
+GDAL, MPI and TauDEM only block the pipelines that use them.
+
+Both installer scripts install GRASS if it is missing, then the addon from the
+copy bundled in `vendor/grass_addons/` (no network needed), and exit non-zero
+unless both end up installed. They can also be run by hand.
+
+**macOS / Linux** — `scripts/install_grass.sh`:
+
+```sh
+bash scripts/install_grass.sh --check       # report only, changes nothing
+bash scripts/install_grass.sh               # install GRASS + the addon
+bash scripts/install_grass.sh --addon-only  # addon only, GRASS already present
 ```
-g.extension extension=r.slopeunits
-```
 
-**On Windows**, `scripts\install_grass_windows.bat` does both steps:
+- *macOS:* Homebrew has no GRASS package, so the script runs
+  `brew install micromamba` and then installs GRASS from conda-forge into
+  `~/.mlprep_envs/grass`. No administrator password is needed, but
+  [Homebrew](https://brew.sh) must already be installed.
+- *Linux:* installs the distribution's `grass` package with apt, dnf, pacman or
+  zypper. It needs `sudo`, or `pkexec` when run from the plugin without a
+  terminal. If neither works, it prints the command to run yourself.
+
+**Windows** — `scripts\install_grass_windows.bat`:
 
 ```bat
 scripts\install_grass_windows.bat /check       :: report only, changes nothing
@@ -51,16 +69,19 @@ scripts\install_grass_windows.bat              :: install GRASS + the addon
 scripts\install_grass_windows.bat /addon-only  :: addon only, GRASS already present
 ```
 
-Run `/check` first. The full install downloads ~940 MB and may need an
-Administrator prompt. If QGIS came from OSGeo4W, adding GRASS through
-`osgeo4w-setup.exe` instead keeps one shared GDAL.
+The full Windows install downloads ~940 MB and may need an Administrator
+prompt. If QGIS came from OSGeo4W, adding GRASS through `osgeo4w-setup.exe`
+instead keeps one shared GDAL.
+
+To install the addon by hand instead: `g.extension extension=r.slopeunits`
 
 ### Python environments
 
 On first run the plugin builds two virtualenvs under `~/.mlprep_envs`
-(`ls_detect_env`, `venv`) from `requirements_ls.txt` and `requirements_eil.txt`,
-then installs the `r.slopeunits` addon into GRASS's user addon directory
-(`~/.grass8/addons`, or `%APPDATA%\GRASS8\addons` on Windows). This takes
+(`ls_detect_env`, `venv`) from `requirements_ls.txt` and `requirements_eil.txt`.
+The `r.slopeunits` addon lives in GRASS's user addon directory
+(`~/.grass8/addons`, or `%APPDATA%\GRASS8\addons` on Windows), and on macOS
+the script-installed GRASS lives in `~/.mlprep_envs/grass`. This takes
 several minutes and needs network access for the pip installs. Nothing is
 installed into QGIS's own Python.
 
@@ -112,16 +133,17 @@ virtualenv, `__pycache__`, `.git` or build tree leaks into the package.
 |---|---|
 | `darwin_arm64` | `./build_native.sh host` on Apple Silicon |
 | `linux_amd64` | `./build_native.sh linux` (Docker, Debian 12) |
-| `darwin_amd64` | CI only — `macos-13` runner, see `.github/workflows/` |
-| `windows_amd64` | prebuilt, vendored from `build_manual/`; rebuild with `build_manual_msvc.ps1` (needs MSVC + MS-MPI) |
+| `darwin_amd64` | not built yet (needs an Intel Mac) |
+| `windows_amd64` | CI — the `windows-native` job in `.github/workflows/ci.yml` builds the engine **and** `pitremove`/`dinfflowdir`, bundles their DLLs + `proj.db`, smoke-tests them under MS-MPI, and uploads `bin-windows_amd64`. Unzip it into `bin/windows_amd64/` before `build_release.sh`. (Fallback: the old prebuilt engine from `build_manual/`, no TauDEM, no DLLs.) |
 
 macOS and Linux builds bundle GDAL and its dependencies alongside the binary, so
 they do not care which GDAL the user has. MPI and the C++ runtime are
 deliberately **not** bundled — the binary is launched by the host's `mpiexec`,
 and a bundled MPI that disagrees with the host launcher fails at startup.
 
-The Windows engine ships **without** bundled DLLs and relies on the host's GDAL
-and MS-MPI.
+The CI-built Windows bundle puts its DLLs beside the `.exe` files (Windows has
+no rpath; a process searches its own directory first). `msmpi.dll` is
+excluded for the same reason as MPI above.
 
 ---
 

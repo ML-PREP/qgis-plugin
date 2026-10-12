@@ -1,5 +1,6 @@
 # Study-area boundary data (large, redistributed separately)
 roi_data/*
+eil_venv/
 
 # Managed environments are created at runtime under ~/.mlprep_envs.
 # A virtualenv inside the plugin is machine-specific and must never ship.
@@ -27,3 +28,13 @@ ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_mac/
 
 # Native build artefacts (regenerate with ./build_binaries.sh)
 ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/build_*/CMakeFiles/
+
+# SSH keys must never be committed or shipped. Keep deploy keys in ~/.ssh.
+mlprep-carsu
+mlprep-carsu.pub
+id_rsa*
+id_ed25519*
+*.pem
+
+# Pipeline run outputs (GeoPackages can be ~1 GB; over GitHub's 100 MB limit)
+run_*/

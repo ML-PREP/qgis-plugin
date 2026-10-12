@@ -106,9 +106,11 @@ def _remove_stale_py_copy(scripts_dir, module):
         os.remove(stale)
 
 
-def bundled_addon_installed():
+def bundled_addon_installed(grass_exe=None):
     """True when GRASS can find every addon module the engine calls."""
-    return all(pu.grass_addon_installed(m) for m in pu.GRASS_ADDON_MODULES)
+    return all(
+        pu.grass_addon_installed(m, grass_exe) for m in pu.GRASS_ADDON_MODULES
+    )
 
 
 def ensure_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
@@ -126,3 +128,13 @@ def ensure_bundled_addon(plugin_dir, addon="r.slopeunits", log=None):
     installed = install_bundled_addon(plugin_dir, addon, log=log)
     pu.clear_module_cache()
     return installed
+
+
+def grass_setup_status():
+    """`(grass_path, addon_ready)` -- what the GRASS setup gate waits on.
+
+    The addon only counts once GRASS itself is found: an addon directory left
+    behind by an uninstalled GRASS cannot run anything.
+    """
+    grass = pu.find_grass()
+    return grass, bool(grass) and bundled_addon_installed(grass)

@@ -3,8 +3,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtCore import Qt
 
-# Import our new unified wrapper
-from .merged_wrapper import UnifiedPluginDialog
+from .app.main_window import UnifiedPluginDialog
 
 
 class MainPlugin:

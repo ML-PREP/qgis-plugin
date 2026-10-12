@@ -9,7 +9,7 @@
 # reached through @rpath (macOS) or $ORIGIN (Linux).
 #
 #   ./build_native.sh              # host platform
-#   ./build_native.sh linux        # linux/amd64, via Docker
+#   ./build_native.sh linux        # linux/amd64 engine + pitremove/dinfflowdir, via Docker
 #   ./build_native.sh all          # host + linux
 #
 set -euo pipefail
@@ -18,6 +18,10 @@ PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CPP_DIR="$PLUGIN_DIR/ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port"
 BIN_ROOT="$PLUGIN_DIR/bin"
 ENGINE="step4_deposition_zone_mpi"
+# TauDEM tools the deposition worker runs before the engine. Built from the
+# vendored TauDEM sources; Linux-only for now (macOS/Windows still need a
+# separate TauDEM install).
+TAUDEM_TOOLS="pitremove dinfflowdir"
 
 target="${1:-host}"
 
@@ -76,21 +80,27 @@ bundle_linux_local() {
 
 build_linux_docker() {
   local out="$BIN_ROOT/linux_amd64"
-  echo "==> Building $ENGINE for linux_amd64 (Docker)"
+  echo "==> Building $ENGINE + TauDEM ($TAUDEM_TOOLS) for linux_amd64 (Docker)"
   command -v docker >/dev/null || { echo "error: docker not installed" >&2; exit 1; }
 
   docker build --platform linux/amd64 \
     -f "$CPP_DIR/docker/Dockerfile.linux" \
     -t mlprep-step4-linux "$CPP_DIR" >/dev/null
 
-  rm -rf "$out/lib" "$out/$ENGINE"
+  local bin
+  rm -rf "$out/lib" "$out/share"
+  for bin in $ENGINE $TAUDEM_TOOLS; do rm -f "$out/$bin"; done
   mkdir -p "$out"
   local cid
   cid="$(docker create --platform linux/amd64 mlprep-step4-linux)"
-  docker cp "$cid:/out/$ENGINE" "$out/$ENGINE" >/dev/null
+  for bin in $ENGINE $TAUDEM_TOOLS; do
+    docker cp "$cid:/out/$bin" "$out/$bin" >/dev/null
+    chmod +x "$out/$bin"
+  done
   docker cp "$cid:/out/lib" "$out/lib" >/dev/null
+  # proj.db matching the bundled libproj (see Dockerfile.linux).
+  docker cp "$cid:/out/share" "$out/share" >/dev/null
   docker rm "$cid" >/dev/null
-  chmod +x "$out/$ENGINE"
   echo "    $(du -sh "$out" | cut -f1) total"
 }
 

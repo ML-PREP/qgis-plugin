@@ -296,6 +296,164 @@ class TestBundledBinary:
         assert got is None
 
 
+class TestFindTaudem:
+    """pitremove and dinfflowdir ship in bin/<tag>/ beside the routing engine.
+
+    Order: a directory the user picked, then the bundled copy, then a system
+    install -- so an unrelated TauDEM on PATH never shadows the tested build.
+    """
+
+    @staticmethod
+    def ship(plugin_dir, name):
+        target = plugin_dir / "bin" / pu.platform_tag()
+        target.mkdir(parents=True, exist_ok=True)
+        return make_stub(target, name + pu.EXE_SUFFIX)
+
+    @pytest.mark.parametrize("tool", pu.BUNDLED_TAUDEM_TOOLS)
+    def test_bundled_copy_beats_a_system_install(
+        self, tmp_path, monkeypatch, tool
+    ):
+        # Arrange
+        plugin_dir = tmp_path / "plugin"
+        want = self.ship(plugin_dir, tool)
+        system = tmp_path / "system"
+        system.mkdir()
+        make_stub(system, tool + pu.EXE_SUFFIX)
+        monkeypatch.setattr(pu, "_override_dir", lambda key: None)
+        monkeypatch.setattr(pu.shutil, "which", lambda name: str(system / name))
+
+        # Act
+        got = pu.find_taudem(tool, str(plugin_dir))
+
+        # Assert
+        assert got == want
+
+    def test_user_override_beats_the_bundled_copy(self, tmp_path, monkeypatch):
+        # Arrange
+        plugin_dir = tmp_path / "plugin"
+        self.ship(plugin_dir, "pitremove")
+        chosen = tmp_path / "chosen"
+        chosen.mkdir()
+        want = make_stub(chosen, "pitremove" + pu.EXE_SUFFIX)
+        monkeypatch.setattr(pu, "_override_dir", lambda key: str(chosen))
+
+        # Act
+        got = pu.find_taudem("pitremove", str(plugin_dir))
+
+        # Assert
+        assert got == want
+
+    def test_falls_back_to_a_system_install_when_nothing_is_bundled(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        system = tmp_path / "system"
+        system.mkdir()
+        want = make_stub(system, "dinfflowdir" + pu.EXE_SUFFIX)
+        monkeypatch.setattr(pu, "_override_dir", lambda key: None)
+        monkeypatch.setattr(pu.shutil, "which", lambda name: None)
+
+        # Act
+        got = pu.find_taudem(
+            "dinfflowdir", str(tmp_path / "plugin"), extra_dirs=[str(system)]
+        )
+
+        # Assert
+        assert got == want
+
+    def test_dependency_report_counts_the_bundled_tools_as_found(
+        self, tmp_path, monkeypatch
+    ):
+        # Arrange
+        for tool in pu.BUNDLED_TAUDEM_TOOLS:
+            self.ship(tmp_path, tool)
+        monkeypatch.setattr(pu, "_override_dir", lambda key: None)
+
+        # Act
+        rows = [s for s in pu.check_dependencies(str(tmp_path))
+                if s.spec.key == pu.TAUDEM_KEY]
+
+        # Assert
+        assert {r.spec.name for r in rows} == set(pu.BUNDLED_TAUDEM_TOOLS)
+        assert all(r.found for r in rows)
+
+
+class TestBundledEnvironment:
+    """PROJ_DATA reaches only the programs shipped in bin/<tag>/.
+
+    Each proj.db is tied to the PROJ release that wrote it; a GRASS or system
+    GDAL handed the bundled one would reject it and lose all CRS support.
+    """
+
+    @staticmethod
+    def ship_proj_db(plugin_dir):
+        proj = plugin_dir / "bin" / pu.platform_tag() / "share" / "proj"
+        proj.mkdir(parents=True)
+        (proj / "proj.db").write_text("db", encoding="utf-8")
+        return str(proj)
+
+    def test_points_proj_data_at_the_shipped_database(self, tmp_path):
+        # Arrange
+        want = self.ship_proj_db(tmp_path)
+
+        # Act
+        env = pu.bundled_environment({"PATH": "/usr/bin"}, str(tmp_path))
+
+        # Assert
+        assert env["PROJ_DATA"] == want
+        assert env["PATH"] == "/usr/bin"
+
+    def test_overrides_a_proj_data_the_user_already_set(self, tmp_path):
+        # Arrange -- the bundled libproj needs its own database regardless.
+        want = self.ship_proj_db(tmp_path)
+
+        # Act
+        env = pu.bundled_environment({"PROJ_DATA": "/opt/proj"}, str(tmp_path))
+
+        # Assert
+        assert env["PROJ_DATA"] == want
+
+    def test_leaves_the_shared_environment_untouched(self, tmp_path):
+        # Arrange
+        self.ship_proj_db(tmp_path)
+        shared = {"PROJ_DATA": "/opt/proj"}
+
+        # Act
+        pu.bundled_environment(shared, str(tmp_path))
+
+        # Assert -- GRASS and system GDAL keep their own database.
+        assert shared == {"PROJ_DATA": "/opt/proj"}
+
+    def test_changes_nothing_when_no_database_ships(self, tmp_path):
+        # Act
+        env = pu.bundled_environment({"PROJ_DATA": "/opt/proj"}, str(tmp_path))
+
+        # Assert
+        assert env == {"PROJ_DATA": "/opt/proj"}
+
+
+class TestIsBundled:
+    def test_true_for_a_binary_in_this_hosts_bin_dir(self, tmp_path):
+        # Arrange
+        path = TestFindTaudem.ship(tmp_path, "pitremove")
+
+        # Act / Assert
+        assert pu.is_bundled(str(tmp_path), path)
+
+    def test_false_for_a_system_install(self, tmp_path):
+        # Arrange
+        system = tmp_path / "usr" / "bin"
+        system.mkdir(parents=True)
+        path = make_stub(system, "pitremove" + pu.EXE_SUFFIX)
+
+        # Act / Assert
+        assert not pu.is_bundled(str(tmp_path), path)
+
+    def test_false_for_nothing_resolved(self, tmp_path):
+        # Act / Assert
+        assert not pu.is_bundled(str(tmp_path), None)
+
+
 class TestSubprocessKwargs:
     def test_forces_utf8_decoding(self):
         # Act
