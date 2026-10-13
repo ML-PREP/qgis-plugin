@@ -97,7 +97,7 @@ class EilPipeline(QtCore.QObject):
             len(request.rasters),
             params,
         )
-        self._probe.start()
+        # self._probe.start()
 
         self._zonal_worker.progress.connect(view.set_progress)
         self._zonal_worker.log.connect(view.log)
@@ -285,7 +285,9 @@ class EilPipeline(QtCore.QObject):
                 self._request.output_folder, DEPOSITION_OUTPUT_SUBDIR
             ),
             step4_wrapper_py=paths.STEP4_WRAPPER,
-            cores=DEPOSITION_CORES,
+            cores=(
+                DEPOSITION_CORES if DEPOSITION_CORES else 0
+            ),  # This constant dynamically determine the cpu core count of the machine it was running on
         )
         self._deposition_worker.log.connect(view.log)
         self._deposition_worker.progress.connect(view.set_progress)

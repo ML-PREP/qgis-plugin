@@ -38,3 +38,4 @@ id_ed25519*
 
 # Pipeline run outputs (GeoPackages can be ~1 GB; over GitHub's 100 MB limit)
 run_*/
+deposition_zone_output/

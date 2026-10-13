@@ -1,6 +1,7 @@
 """Fixed parameters of the EIL pipeline."""
 
 from types import MappingProxyType
+import os
 
 # Slivers smaller than this (map units²) are merged away after tiling, and the
 # Go engine discards slope units below it.
@@ -23,7 +24,8 @@ ZONAL_PARAMS = MappingProxyType(
 
 DEFAULT_MAX_ITERATIONS = 10
 
-DEPOSITION_CORES = 4
+DEPOSITION_CORES = os.cpu_count() if os.cpu_count() else 0
+
 DEPOSITION_OUTPUT_SUBDIR = "deposition_zone_output"
 DEFAULT_OUTPUT_SUBDIR = "EIL_Results"
 
