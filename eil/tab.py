@@ -9,7 +9,9 @@ from qgis.PyQt.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 from .. import platform_utils as pu
 from ..busy_overlay import BusyOverlay
 from ..eil_mainwindow import Ui_MainWindow as Ui_EIL
-from ..log_panel import LEVEL_ERROR, LEVEL_WARNING as LOG_WARNING
+from ..log_panel import LEVEL_ERROR
+from ..log_panel import LEVEL_SUCCESS as LOG_SUCCESS
+from ..log_panel import LEVEL_WARNING as LOG_WARNING
 from .dashboard import HazardDashboard
 from .feature_info import FeatureHoverFilter
 from .inputs import EilInputs
@@ -89,6 +91,11 @@ class EilTab(QtCore.QObject):
 
     def should_load_results(self):
         return self.ui.checkBox_LoadResults.isChecked()
+
+    def show_completion(self, title, text):
+        """Tell the user the whole pipeline has finished."""
+        self.log(f"\n{title}", LOG_SUCCESS)
+        QMessageBox.information(self._window, title, text)
 
     def set_running(self, running, stage="", hint=""):
         """Enter or leave the busy state, in one place, for every exit path."""

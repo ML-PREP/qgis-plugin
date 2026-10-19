@@ -8,7 +8,7 @@
 # Each platform therefore ships its dependency closure in a sibling lib/ dir,
 # reached through @rpath (macOS) or $ORIGIN (Linux).
 #
-#   ./build_native.sh              # host platform
+#   ./build_native.sh              # host platform: engine + pitremove/dinfflowdir
 #   ./build_native.sh linux        # linux/amd64 engine + pitremove/dinfflowdir, via Docker
 #   ./build_native.sh all          # host + linux
 #
@@ -19,8 +19,7 @@ CPP_DIR="$PLUGIN_DIR/ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port"
 BIN_ROOT="$PLUGIN_DIR/bin"
 ENGINE="step4_deposition_zone_mpi"
 # TauDEM tools the deposition worker runs before the engine. Built from the
-# vendored TauDEM sources; Linux-only for now (macOS/Windows still need a
-# separate TauDEM install).
+# vendored TauDEM sources and shipped next to the engine, sharing its lib/.
 TAUDEM_TOOLS="pitremove dinfflowdir"
 
 target="${1:-host}"
@@ -45,35 +44,54 @@ build_host() {
   tag="$(host_tag)"
   out="$BIN_ROOT/$tag"
 
-  echo "==> Building $ENGINE for $tag"
+  echo "==> Building $ENGINE + TauDEM ($TAUDEM_TOOLS) for $tag"
   command -v cmake >/dev/null || { echo "error: cmake not installed" >&2; exit 1; }
 
-  cmake -S "$CPP_DIR" -B "$CPP_DIR/build-$tag" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake -S "$CPP_DIR" -B "$CPP_DIR/build-$tag" -DCMAKE_BUILD_TYPE=Release \
+    -DMLPREP_BUILD_TAUDEM_TOOLS=ON >/dev/null
   cmake --build "$CPP_DIR/build-$tag" --parallel >/dev/null
 
-  rm -rf "$out/lib" "$out/$ENGINE"
+  local bin
+  rm -rf "$out/lib" "$out/share"
   mkdir -p "$out"
-  cp "$CPP_DIR/build-$tag/$ENGINE" "$out/$ENGINE"
+  for bin in $ENGINE $TAUDEM_TOOLS; do
+    rm -f "$out/$bin"
+    cp "$CPP_DIR/build-$tag/$bin" "$out/$bin"
+  done
 
   echo "==> Bundling dependencies"
   if [ "${tag%%_*}" = "darwin" ]; then
-    python3 "$PLUGIN_DIR/scripts/bundle_macos_deps.py" "$out/$ENGINE" >/dev/null
+    bundle_macos_local "$out"
   else
     bundle_linux_local "$out"
   fi
   echo "    $(du -sh "$out" | cut -f1) total"
 }
 
+bundle_macos_local() {
+  local out="$1" bin proj_db
+  # All three executables share one lib/; the bundler skips dylibs already there.
+  for bin in $ENGINE $TAUDEM_TOOLS; do
+    python3 "$PLUGIN_DIR/scripts/bundle_macos_deps.py" "$out/$bin" >/dev/null
+  done
+  # proj.db matching the bundled libproj (see bundled_environment).
+  proj_db="$(brew --prefix proj 2>/dev/null)/share/proj/proj.db"
+  [ -f "$proj_db" ] || { echo "error: proj.db not found at $proj_db" >&2; exit 1; }
+  mkdir -p "$out/share/proj"
+  cp "$proj_db" "$(dirname "$proj_db")/proj.ini" "$out/share/proj/"
+}
+
 bundle_linux_local() {
-  local out="$1"
+  local out="$1" bin
   command -v patchelf >/dev/null || { echo "error: patchelf not installed" >&2; exit 1; }
   mkdir -p "$out/lib"
   # See docker/Dockerfile.linux for why MPI and libstdc++ are excluded.
-  ldd "$out/$ENGINE" | awk '/=> \//{print $3}' \
+  for bin in $ENGINE $TAUDEM_TOOLS; do ldd "$out/$bin"; done \
+    | awk '/=> \//{print $3}' | sort -u \
     | grep -vE '/(libc|libm|libpthread|libdl|librt|ld-linux)[.-]' \
     | grep -vE '/(libmpi|libmpi_cxx|libstdc\+\+|libgcc_s|libopen-pal|libopen-rte)[.-]' \
     | xargs -I{} cp -Lf {} "$out/lib/"
-  patchelf --set-rpath '$ORIGIN/lib' "$out/$ENGINE"
+  for bin in $ENGINE $TAUDEM_TOOLS; do patchelf --set-rpath '$ORIGIN/lib' "$out/$bin"; done
   # Bundled libraries resolve their own dependencies through their own rpath.
   for lib in "$out"/lib/*.so*; do patchelf --set-rpath '$ORIGIN' "$lib"; done
 }

@@ -414,7 +414,7 @@ def bundled_environment(base, plugin_dir):
 
 TAUDEM_KEY = "taudem"
 # Built from the vendored TauDEM sources by build_native.sh and shipped in
-# bin/<tag>/ next to the routing engine (linux_amd64 only so far).
+# bin/<tag>/ next to the routing engine (linux_amd64 and darwin_arm64).
 BUNDLED_TAUDEM_TOOLS = ("pitremove", "dinfflowdir")
 
 

@@ -46,7 +46,7 @@ endif()
 
 # The two TauDEM tools the plugin runs before Step 4 (pit filling and
 # D-infinity flow direction). Shipping them with the engine removes TauDEM as
-# a separate install. Off by default: only the Linux build enables it so far.
+# a separate install. Off by default; build_native.sh enables it for macOS and Linux.
 option(MLPREP_BUILD_TAUDEM_TOOLS "Build pitremove and dinfflowdir" OFF)
 
 function(add_taudem_tool name)

@@ -21,6 +21,8 @@ from ..common.qgis_layers import add_raster_layer, add_vector_layer
 from ..log_panel import LEVEL_ERROR as LOG_ERROR
 from ..log_panel import LEVEL_SUCCESS as LOG_SUCCESS
 from ..log_panel import LEVEL_WARNING as LOG_WARNING
+from . import progress
+from .completion import completion_message
 from .debug_process import InfinitePrintingProbe
 from .params import (
     DEPOSITION_CORES,
@@ -32,8 +34,6 @@ from .seams import eliminate_seams
 from .workers.deposition import MLDFIDepositionWorker
 from .workers.pinn import PINNPredictionWorker
 from .workers.zonal import GoParallelZonalWorker
-
-SEAM_CLEANUP_PROGRESS = 90
 
 
 @dataclass(frozen=True)
@@ -67,6 +67,7 @@ class EilPipeline(QtCore.QObject):
         self._zonal_worker = None
         self._pinn_worker = None
         self._deposition_worker = None
+        self._shown_progress = 0
         self._probe = InfinitePrintingProbe(view.log, parent=self)
 
     # ------------------------------------------------------------------
@@ -75,6 +76,7 @@ class EilPipeline(QtCore.QObject):
     def start(self, request):
         view = self._view
         self._request = request
+        self._reset_progress()
         self._temp_raster_dir = _stage_rasters(request.rasters)
         params = dict(ZONAL_PARAMS)
 
@@ -99,7 +101,7 @@ class EilPipeline(QtCore.QObject):
         )
         # self._probe.start()
 
-        self._zonal_worker.progress.connect(view.set_progress)
+        self._zonal_worker.progress.connect(self._on_zonal_progress)
         self._zonal_worker.log.connect(view.log)
         self._zonal_worker.error.connect(self._on_stage_error)
         self._zonal_worker.finished.connect(self._on_zonal_finished)
@@ -119,7 +121,7 @@ class EilPipeline(QtCore.QObject):
         self._cleanup_temp_rasters()
         view.set_running(False)
         view.log("--> Algorithm Cancelled by User.", LOG_WARNING)
-        view.set_progress(0)
+        self._reset_progress()
 
     def _cleanup_temp_rasters(self):
         if self._temp_raster_dir and os.path.exists(self._temp_raster_dir):
@@ -128,6 +130,36 @@ class EilPipeline(QtCore.QObject):
 
     def _stop(self):
         self._view.set_running(False)
+
+    # ------------------------------------------------------------------
+    # Progress: each stage reports 0-100 of its own work (see progress.py)
+    # ------------------------------------------------------------------
+    def _report(self, stage, percent):
+        self._shown_progress = progress.advance(self._shown_progress, stage, percent)
+        self._view.set_progress(self._shown_progress)
+
+    def _reset_progress(self):
+        self._shown_progress = 0
+        self._view.set_progress(0)
+
+    def _finish(self, routing_ran):
+        """End a successful run: full bar, idle tab, then tell the user."""
+        self._shown_progress = progress.COMPLETE
+        self._view.set_progress(progress.COMPLETE)
+        self._stop()
+        self._view.show_completion(
+            *completion_message(self._request.output_folder, routing_ran)
+        )
+
+    # Declared slots, not lambdas: a slot runs on this object's (GUI) thread,
+    # while a lambda could touch the widgets from the worker thread.
+    @QtCore.pyqtSlot(int)
+    def _on_zonal_progress(self, percent):
+        self._report(progress.ZONAL, percent)
+
+    @QtCore.pyqtSlot(int)
+    def _on_deposition_progress(self, percent):
+        self._report(progress.DEPOSITION, percent)
 
     def _load_vector(self, path, name):
         if not path or not os.path.exists(path):
@@ -158,7 +190,7 @@ class EilPipeline(QtCore.QObject):
     def _after_zonal(self, output_folder):
         view = self._view
         view.log("\n[Data Prep Complete] All features merged!", LOG_SUCCESS)
-        view.set_progress(SEAM_CLEANUP_PROGRESS)
+        self._report(progress.SEAMS, 0)
         view.set_stage(
             "Cleaning geometry",
             "Erasing tile seams from the slope units and merged features.",
@@ -177,6 +209,9 @@ class EilPipeline(QtCore.QObject):
         )
         if os.path.exists(slope_units) and view.should_load_results():
             self._load_vector(slope_units, "EIL Slope Units")
+        # The two layers take about equally long.
+        self._report(progress.SEAMS, 50)
+        QtWidgets.QApplication.processEvents()
 
         features = self._clean_seams(
             output_folder,
@@ -184,6 +219,7 @@ class EilPipeline(QtCore.QObject):
             "Cleaned_PINN_Features.gpkg",
             "PINN Features",
         )
+        self._report(progress.SEAMS, 100)
 
         # Cancel may have been clicked while seam removal was blocking.
         if not view.is_running:
@@ -203,6 +239,7 @@ class EilPipeline(QtCore.QObject):
         self._start_pinn(features, output_folder)
 
     def _start_pinn(self, features, output_folder):
+        self._report(progress.PINN, 0)
         self._view.set_stage(
             "Running AI model",
             "Loading TensorFlow and predicting susceptibility for every slope unit.",
@@ -227,10 +264,10 @@ class EilPipeline(QtCore.QObject):
         if not view.is_running:
             return
 
-        view.set_progress(100)
         if status != "success":
             self._stop()
             return
+        self._report(progress.PINN, 100)
 
         view.log("\n✅ AI Predictions generated successfully!", LOG_SUCCESS)
         if view.should_load_results():
@@ -240,11 +277,9 @@ class EilPipeline(QtCore.QObject):
         view.dashboard.update(result.get("output"))
 
         overall_tif = result.get("overall_tif")
-        if not (overall_tif and os.path.exists(overall_tif)):
-            self._stop()
-            return
-        if self._deposition_blocked():
-            self._stop()
+        has_raster = bool(overall_tif) and os.path.exists(overall_tif)
+        if not has_raster or self._deposition_blocked():
+            self._finish(routing_ran=False)
             return
         self._start_deposition(overall_tif)
 
@@ -290,7 +325,7 @@ class EilPipeline(QtCore.QObject):
             ),  # This constant dynamically determine the cpu core count of the machine it was running on
         )
         self._deposition_worker.log.connect(view.log)
-        self._deposition_worker.progress.connect(view.set_progress)
+        self._deposition_worker.progress.connect(self._on_deposition_progress)
         self._deposition_worker.finished.connect(self._on_deposition_finished)
         self._deposition_worker.error.connect(self._on_stage_error)
         self._deposition_worker.start()
@@ -302,14 +337,14 @@ class EilPipeline(QtCore.QObject):
         view = self._view
         if not view.is_running:
             return
-        self._stop()
-
         if status != "success" or not os.path.exists(mask_path):
+            self._stop()
             return
         if view.should_load_results() and add_raster_layer(
             mask_path, "ML-DFI Depositional Zone"
         ):
             view.log("--> Loaded into map: ML-DFI Depositional Zone")
+        self._finish(routing_ran=True)
 
     def _on_stage_error(self, message):
         view = self._view
@@ -318,4 +353,4 @@ class EilPipeline(QtCore.QObject):
         self._stop()
         self._cleanup_temp_rasters()
         view.log(f"\n[CRITICAL ERROR] {message}", LOG_ERROR)
-        view.set_progress(0)
+        self._reset_progress()

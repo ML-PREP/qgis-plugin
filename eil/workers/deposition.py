@@ -16,6 +16,15 @@ from .commands import build_routing_command
 ENGINE_NAME = "step4_deposition_zone_mpi"
 SOURCE_THRESHOLD = 0.50
 
+# This stage's own 0-100 progress after each step. TauDEM's D-infinity pass
+# dominates: 42 of the 46 minutes of the full-size run on 4 cores.
+PITREMOVE_DONE = 10
+DINFFLOWDIR_DONE = 80
+DFI_CLEANED = 82
+ALPHA_WRITTEN = 84
+SOURCES_WRITTEN = 85
+COMPLETE = 100
+
 
 class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
     progress = pyqtSignal(int)
@@ -85,11 +94,15 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
     def _run_taudem(self, env, fel, ang, slp):
         mpi_base = [self.mpi_exe, "-n", str(self.cores)]
         steps = (
-            ("Pit-filling DEM", ["pitremove", "-z", self.dem_path, "-fel", fel], 10),
+            (
+                "Pit-filling DEM",
+                ["pitremove", "-z", self.dem_path, "-fel", fel],
+                PITREMOVE_DONE,
+            ),
             (
                 "Computing Flow Direction & Slope",
                 ["dinfflowdir", "-fel", fel, "-ang", ang, "-slp", slp],
-                25,
+                DINFFLOWDIR_DONE,
             ),
         )
         for number, (label, (tool, *args), done) in enumerate(steps, start=1):
@@ -108,12 +121,12 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
         self.log.emit("   > Cleaning DFI Raster (Clamping probabilities to [0, 1])...")
         dfi, profile = raster_io.read_band(self.dfi_tif)
         raster_io.write_band(dfi_clean, dr.clamp_dfi(dfi), profile)
-        self.progress.emit(30)
+        self.progress.emit(DFI_CLEANED)
 
         self.log.emit("   > Generating Baseline Alpha Raster (Step 0 Logic)...")
         slope, profile = raster_io.read_band(slp)
         raster_io.write_band(alpha, dr.alpha_from_slope(slope, profile.nodata), profile)
-        self.progress.emit(35)
+        self.progress.emit(ALPHA_WRITTEN)
 
         self.log.emit(
             f"   > Generating Binary Source Raster (Target DFI > {SOURCE_THRESHOLD})..."
@@ -121,7 +134,7 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
         clean, profile = raster_io.read_band(dfi_clean)
         mask = dr.source_mask(clean, profile.nodata, SOURCE_THRESHOLD, self.log.emit)
         raster_io.write_band(source, mask, profile)
-        self.progress.emit(45)
+        self.progress.emit(SOURCES_WRITTEN)
 
     def _routing_engine(self):
         """The C++/MPI engine shipped for this platform, or None after reporting.
@@ -203,7 +216,7 @@ class MLDFIDepositionWorker(CancellableProcessMixin, QThread):
                 self.error.emit(f"C++/MPI Step 4 failed with exit code {returncode}.")
                 return
 
-            self.progress.emit(100)
+            self.progress.emit(COMPLETE)
             self.log.emit("\n✅ Depositional Routing Complete!")
             self.finished.emit(output_dep, "success")
 

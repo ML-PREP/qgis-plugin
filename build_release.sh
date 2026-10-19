@@ -40,6 +40,11 @@ EXCLUDES=(
   ".pytest_cache/"
   "output/"
   "scratch/"
+  # Pipeline run outputs left in the plugin directory (several GB each).
+  "/run_*/"
+  "/deposition_zone_output/"
+  "/EIL_Results/"
+  ".coverage"
   ".DS_Store"
   ".git/"
   ".gitignore"

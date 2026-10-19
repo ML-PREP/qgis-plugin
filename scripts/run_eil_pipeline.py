@@ -244,6 +244,10 @@ class ConsoleView:
     def should_load_results(self):
         return False
 
+    def show_completion(self, title, text):
+        """The tab's success dialog; a headless run only logs it."""
+        self.log(f"\n===== {title} =====\n{text}")
+
     def set_running(self, running, stage="", hint=""):
         self._running = running
         if running:

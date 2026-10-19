@@ -78,7 +78,9 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
 
     def _stream_output(self, process):
         """Relay engine output to the log and progress bar until it exits."""
-        step = zonal_progress.zonal_step(self.total_rasters)
+        steps = zonal_progress.zonal_steps(
+            zonal_progress.tile_count(self.params), self.total_rasters
+        )
         current = 0.0
         try:
             for line in iter(process.stdout.readline, ""):
@@ -86,7 +88,7 @@ class GoParallelZonalWorker(CancellableProcessMixin, QThread):
                 if not clean_line:
                     continue
                 self.log.emit(f"   > GO: {clean_line}")
-                current, value = zonal_progress.advance(current, clean_line, step)
+                current, value = zonal_progress.advance(current, clean_line, steps)
                 if value is not None:
                     self.progress.emit(value)
         except Exception as exc:
