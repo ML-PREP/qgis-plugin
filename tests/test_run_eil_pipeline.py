@@ -90,14 +90,26 @@ class TestOutputs:
 
         assert got == os.path.join("/data/area", "EIL_Results")
 
-    def test_expected_outputs_end_with_the_depositional_mask(self):
+    def test_grid_runs_expect_no_slope_units(self):
+        got = runner.expected_outputs("/out", is_grid=True)
+
+        labels = [label for label, _path in got]
+        assert not any("Slope units" in label for label in labels)
+        assert ("Hazard grid (grid PINN)", os.path.join("/out", "Final_Hazard_Grid.tif")) in got
+        assert got[-1][1] == os.path.join("/out", "PostDep_DepZone.tif")
+
+    def test_expected_outputs_end_with_the_cleaned_depositional_zone(self):
         got = runner.expected_outputs("/out")
 
         labels = [label for label, _path in got]
+        paths = [path for _label, path in got]
         assert labels[0] == "Slope units (Go)"
-        assert got[-1][1] == os.path.join(
-            "/out", "deposition_zone_output", "step4_pure_depositional_mask.tif"
-        )
+        assert got[-1][1] == os.path.join("/out", "PostDep_DepZone.tif")
+        assert os.path.join(
+            "/out", "deposition_zone_output", "fos_source_refinement",
+            "refined_source_mask.tif",
+        ) in paths
+        assert os.path.join("/out", "ML_DFI_Depositional_Zone.tif") in paths
         assert ("PINN raster (Overall_Output.tif)",
                 os.path.join("/out", "overall_output", "Overall_Output.tif")) in got
 
@@ -194,3 +206,53 @@ class TestConsoleViewLogFile:
         assert lines[0] == "[setup] [Warning] Clay: /d/clay.asc is not a GeoTIFF; ignored"
         assert lines[1].endswith("--- STARTING ---")
         assert "ignored" not in capsys.readouterr().out
+
+
+class TestResolveModel:
+    def test_defaults_to_the_configured_default_model(self):
+        # Act
+        got = runner.resolve_model(None, log=lambda _m: None)
+
+        # Assert -- the model the runner always used before --model existed.
+        assert os.path.basename(got.path) == "my_model.keras"
+        assert not got.is_grid
+
+    def test_unknown_id_is_reported_with_the_choices(self):
+        # Arrange
+        logged = []
+
+        # Act
+        got = runner.resolve_model("nope", log=logged.append)
+
+        # Assert
+        assert got is None
+        assert "earthquake" in logged[-1]
+
+    def test_model_without_its_file_is_reported(self, tmp_path, monkeypatch):
+        # Arrange
+        config = tmp_path / "pinn_models.json"
+        config.write_text(
+            '{"default": "a", "models": [{"id": "a", "name": "A", "path": "a.keras"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(runner.plugin_module("common.paths"), "PINN_MODEL_CONFIG", str(config))
+        logged = []
+
+        # Act
+        got = runner.resolve_model("a", log=logged.append)
+
+        # Assert
+        assert got is None
+        assert "a.keras" in logged[-1]
+
+    def test_resolves_the_grid_model_with_its_cell_size(self):
+        # Act
+        got = runner.resolve_model("grid-v2-9", log=lambda _m: None)
+
+        # Assert
+        assert got.is_grid
+        assert got.cell_size_m == 25.0
+
+    def test_parse_args_accepts_a_model_id(self):
+        args = runner.parse_args(["--dem", "/d/dem.tif", "--model", "rainfall"])
+        assert args.model == "rainfall"

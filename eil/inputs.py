@@ -44,6 +44,7 @@ class EilInputs(QtCore.QObject):
             ui.comboBox_SoilThickness,
             ui.comboBox_SoilType,
             ui.comboBox_ContributingFactor,
+            ui.comboBox_NDVI,
         ]
         self._connect_signals()
         self.refresh_layers()
@@ -61,6 +62,7 @@ class EilInputs(QtCore.QObject):
             ui.pushButton_SoilThickness: ui.comboBox_SoilThickness,
             ui.pushButton_SoilType: ui.comboBox_SoilType,
             ui.pushButton_ContributingFactor: ui.comboBox_ContributingFactor,
+            ui.pushButton_NDVI: ui.comboBox_NDVI,
         }
         for button, box in browse_buttons.items():
             button.clicked.connect(lambda _checked, b=box: self._browse_raster(b))
@@ -121,6 +123,8 @@ class EilInputs(QtCore.QObject):
         if index != -1:
             box.setCurrentIndex(index)
         box.blockSignals(False)
+        # compact_combo keeps the tooltip in sync, but signals were blocked.
+        box.setToolTip(box.currentText())
 
     def has_dem(self):
         return bool(self._ui.comboBox_DEM.currentData())
@@ -137,6 +141,13 @@ class EilInputs(QtCore.QObject):
         if not layer:
             return "", DEFAULT_CRS
         return layer.source().split("|")[0], layer.crs().authid()
+
+    def ndvi_path(self):
+        """The NDVI raster for the depositional zone, or "" when none is chosen."""
+        path = layer_source_path(self._ui.comboBox_NDVI.currentData())
+        if path and os.path.exists(path) and path.lower().endswith(RASTER_SUFFIXES):
+            return path
+        return ""
 
     def selected_rasters(self):
         """{model input name: raster path} for every usable selection."""

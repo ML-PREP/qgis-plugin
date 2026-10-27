@@ -1,0 +1,25 @@
+{
+  "default": "earthquake",
+  "models": [
+    {
+      "id": "earthquake",
+      "name": "Earthquake Induced Model",
+      "path": "my_model.keras",
+      "description": "PINN susceptibility for earthquake-induced landslides."
+    },
+    {
+      "id": "rainfall",
+      "name": "Rainfall-aware EIL Model",
+      "path": "fixed-recharge-conditioned.keras",
+      "description": "PINN susceptibility for earthquake-induced landslides, accounting for rainfall."
+    },
+    {
+      "id": "grid-v2-9",
+      "name": "Grid Model v2-9 (25 m cells)",
+      "kind": "grid",
+      "path": "grid_v2-9-fixed-recharge",
+      "cell_size_m": 25,
+      "description": "PINN susceptibility on a 25 m grid (no slope units or zonal statistics); mean of 5 cross-validation folds, trained in mlprep/notebooks/cotabato_grid_v2-9.ipynb (outputs/obj2/wetness/v4-Fixed-Recharge/grid/soil_conditioned_v2-9). Its fos_layer feeds the depositional zone's source mask."
+    }
+  ]
+}

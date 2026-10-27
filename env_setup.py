@@ -130,15 +130,19 @@ def create_venv(base_python, venv_dir, env=None, log=None):
     name = os.path.basename(venv_dir)
     python_exe = pu.venv_python(name)
 
-    if interpreter_works(python_exe):
+    version = pu.venv_version(name)
+    too_old = version is not None and version < pu.MIN_PYTHON
+
+    if interpreter_works(python_exe) and not too_old:
         log(f"   > Reusing existing environment: {venv_dir}")
         if not has_pip(python_exe):
             _bootstrap_pip(python_exe, env, log)
         return python_exe
 
-    # Anything already there is broken or half-written; start clean.
+    # Anything already there is broken, half-written or built on a Python
+    # older than MIN_PYTHON; start clean.
     if os.path.exists(venv_dir):
-        log(f"   > Removing incomplete environment: {venv_dir}")
+        log(f"   > Removing incomplete or outdated environment: {venv_dir}")
         shutil.rmtree(venv_dir, ignore_errors=True)
 
     log(f"   > Creating environment: {venv_dir}")

@@ -16,6 +16,8 @@ from datetime import datetime
 # qgis.PyQt maps to whichever Qt binding this QGIS was built against.
 from qgis.PyQt import QtCore, QtGui, QtWidgets
 
+from .common.flow_layout import FlowLayout
+
 
 # --- Levels ------------------------------------------------------------------
 # Rank drives the severity filter: a record shows when rank >= selected rank.
@@ -142,6 +144,17 @@ class LogRecord(object):
         ).format(stamp=stamp, color=color, weight=weight, body=body)
 
 
+def _row(parent, *widgets):
+    """Widgets kept side by side as one unit inside a FlowLayout."""
+    row = QtWidgets.QWidget(parent)
+    layout = QtWidgets.QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(4)
+    for widget in widgets:
+        layout.addWidget(widget)
+    return row
+
+
 class LogPanel(QtWidgets.QWidget):
     """Console widget: header controls + colour-coded, filterable log view."""
 
@@ -157,7 +170,7 @@ class LogPanel(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        layout.addLayout(self._build_header(title))
+        layout.addWidget(self._build_header(title))
 
         self.view = QtWidgets.QPlainTextEdit(self)
         self.view.setObjectName("logView")
@@ -174,33 +187,32 @@ class LogPanel(QtWidgets.QWidget):
         layout.addWidget(self.view, 1)
 
     def _build_header(self, title):
-        header = QtWidgets.QHBoxLayout()
-        header.setSpacing(4)
+        """Title, counts and controls; wraps onto more rows in a narrow column."""
+        header = QtWidgets.QWidget(self)
+        flow = FlowLayout(header, spacing=6)
 
         self.label_title = QtWidgets.QLabel(title, self)
         self.label_title.setStyleSheet(
             "font-weight: 600; color: #24292f; background: transparent;")
-        header.addWidget(self.label_title)
-
         self.label_counts = QtWidgets.QLabel("", self)
         self.label_counts.setStyleSheet(
             "color: #6a737d; background: transparent;")
-        header.addWidget(self.label_counts)
-        header.addStretch(1)
+        flow.addWidget(_row(header, self.label_title, self.label_counts))
 
         self.comboBox_Filter = QtWidgets.QComboBox(self)
         self.comboBox_Filter.setToolTip("Filter messages by severity")
         for label, rank in FILTER_CHOICES:
             self.comboBox_Filter.addItem(label, rank)
         self.comboBox_Filter.currentIndexChanged.connect(self._rerender)
-        header.addWidget(self.comboBox_Filter)
+        flow.addWidget(self.comboBox_Filter)
 
         self.checkBox_AutoScroll = QtWidgets.QCheckBox("Auto-scroll", self)
         self.checkBox_AutoScroll.setChecked(True)
         self.checkBox_AutoScroll.setToolTip(
             "Keep the newest message visible while the pipeline runs")
-        header.addWidget(self.checkBox_AutoScroll)
+        flow.addWidget(self.checkBox_AutoScroll)
 
+        buttons = []
         for text, tip, slot in (
             ("Copy", "Copy the visible log to the clipboard", self.copy_to_clipboard),
             ("Save", "Save the visible log to a text file", self.save_to_file),
@@ -210,7 +222,9 @@ class LogPanel(QtWidgets.QWidget):
             button.setToolTip(tip)
             button.setMaximumWidth(60)
             button.clicked.connect(slot)
-            header.addWidget(button)
+            buttons.append(button)
+        # The three actions wrap as one group rather than one by one.
+        flow.addWidget(_row(header, *buttons))
 
         return header
 

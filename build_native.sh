@@ -20,7 +20,7 @@ BIN_ROOT="$PLUGIN_DIR/bin"
 ENGINE="step4_deposition_zone_mpi"
 # TauDEM tools the deposition worker runs before the engine. Built from the
 # vendored TauDEM sources and shipped next to the engine, sharing its lib/.
-TAUDEM_TOOLS="pitremove dinfflowdir"
+TAUDEM_TOOLS="pitremove dinfflowdir areadinf threshold dinfdistdown dinfdistup"
 
 target="${1:-host}"
 

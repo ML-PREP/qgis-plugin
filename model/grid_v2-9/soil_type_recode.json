@@ -1,0 +1,26 @@
+{
+  "description": "Soil Type.tif code -> soil-map name the v2-9 model's `type` StringLookup was adapted on. Copied from mlprep/datasets/nc_mapped.mapping.json (metadata.type_recode); agrees with combined_mapped (Makilala training) on every shared code.",
+  "source_note": "majority SU_19_v1_contri.gpkg `type` at slope-unit representative points sampled on Soil Type.tif. Low purity (<80%): 458 (77%), 453 (78%), 305 (75%), 94 (70%). 999 and 1 had ~no slope units (likely water/built-up) and were set to Undifferentiated by assumption. 435 had no representative points; set to Clay from 153 grid cells inside SU_19 units (90% Clay, 10% Silty Clay Loam) \u2014 weak evidence, lowland Pigkawayan.",
+  "codes": {
+    "1": "Undifferentiated",
+    "45": "Undifferentiated",
+    "94": "Silty Clay Loam",
+    "132": "Clay",
+    "190": "Loam",
+    "194": "Clay",
+    "305": "Clay Loam",
+    "325": "Clay",
+    "431": "Clay Loam",
+    "433": "Undifferentiated",
+    "434": "Clay Loam",
+    "435": "Clay",
+    "448": "Clay",
+    "449": "Clay Loam",
+    "451": "Sandy Clay Loam",
+    "452": "Clay",
+    "453": "Clay Loam",
+    "458": "Sand",
+    "583": "Sandy Clay Loam",
+    "999": "Undifferentiated"
+  }
+}

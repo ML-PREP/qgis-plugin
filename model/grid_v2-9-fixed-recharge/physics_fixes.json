@@ -1,0 +1,14 @@
+{
+  "geotech_mode": "unconstrained",
+  "geotech_exclude": [
+    "Prc_mean",
+    "Slope_mean",
+    "Elev_mean",
+    "BUK_mean"
+  ],
+  "bulk_density_unit": "cg/cm3",
+  "wetness_saturation": "clip",
+  "cohesion_max_kpa": 30.0,
+  "acpg_clamp": "soft",
+  "newmark_threshold": "learnable"
+}

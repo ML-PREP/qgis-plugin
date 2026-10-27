@@ -10,6 +10,10 @@ sized from the full-size run on carsu_vm (Cotabato, 21,086 x 20,119 DEM,
     depositional routing        10 min 50 s   ->  65-100
 
 Routing is optional: a run that skips it jumps from 65 to 100 when it ends.
+
+A grid model (no slope units) replaces the first three stages with one:
+
+    gridding + grid PINN predictions      ~3 min  ->   0-65
 """
 
 from types import MappingProxyType
@@ -17,6 +21,7 @@ from types import MappingProxyType
 ZONAL = "zonal"
 SEAMS = "seams"
 PINN = "pinn"
+GRID = "grid"
 DEPOSITION = "deposition"
 
 STAGE_SLICES = MappingProxyType(
@@ -28,12 +33,22 @@ STAGE_SLICES = MappingProxyType(
     }
 )
 
+# The grid route's stages, also tiling the whole bar.
+GRID_STAGE_SLICES = MappingProxyType(
+    {
+        GRID: (0, 65),
+        DEPOSITION: STAGE_SLICES[DEPOSITION],
+    }
+)
+
+_SLICES = MappingProxyType({**STAGE_SLICES, **GRID_STAGE_SLICES})
+
 COMPLETE = 100
 
 
 def overall(stage, percent):
     """Bar position for `stage` at `percent` (0-100) of its own work."""
-    start, end = STAGE_SLICES[stage]
+    start, end = _SLICES[stage]
     fraction = min(max(percent, 0), 100) / 100
     return int(start + (end - start) * fraction)
 

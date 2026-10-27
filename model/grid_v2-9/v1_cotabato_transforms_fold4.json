@@ -1,0 +1,52 @@
+{
+  "version": "v1_cotabato_fold4",
+  "fold": 4,
+  "skew_threshold": 1.0,
+  "clip_lower_pct": 1,
+  "clip_upper_pct": 99,
+  "physics_features_excluded": [
+    "BUK_mean",
+    "ContributingFactor_mean",
+    "LULC_majority",
+    "PGA2_max",
+    "Prc_mean",
+    "Slope_mean",
+    "SoilThc_mean"
+  ],
+  "log_transformed_cols": [
+    "Elev_mean",
+    "BUK_mean_was_imputed",
+    "SoilThc_mean_was_imputed",
+    "PGA2_max_was_imputed",
+    "Clay_mean_was_imputed",
+    "Silt_mean_was_imputed",
+    "Sand_mean_was_imputed"
+  ],
+  "clip_thresholds": {
+    "Elev_mean": [
+      4.6822614669799805,
+      7.672896862030029
+    ]
+  },
+  "imputed_indicator_cols": [
+    "BUK_mean_was_imputed",
+    "SoilThc_mean_was_imputed",
+    "PGA2_max_was_imputed",
+    "Clay_mean_was_imputed",
+    "Silt_mean_was_imputed",
+    "Sand_mean_was_imputed"
+  ],
+  "imputation_medians": {
+    "Slope_mean": 20.752605438232422,
+    "BUK_mean": 112.0,
+    "Prc_mean": 142.68240356445312,
+    "ContributingFactor_mean": 453.0451354980469,
+    "SoilThc_mean": 10.772531509399414,
+    "Elev_mean": 548.8543090820312,
+    "PGA2_max": 0.27413132786750793,
+    "Clay_mean": 377.0,
+    "Silt_mean": 282.0,
+    "Sand_mean": 345.0,
+    "NDVI_mean": 0.8059583306312561
+  }
+}

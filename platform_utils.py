@@ -215,24 +215,32 @@ def gdal_bin_dir():
 # ---------------------------------------------------------------------------
 
 
-def base_python():
-    """Interpreter used to create the managed virtualenvs.
+# The ml_dfi_handoff scripts use PEP 604 unions (`X | None`) and other 3.10+
+# syntax, so an older interpreter fails at import with a cryptic TypeError.
+MIN_PYTHON = (3, 10)
 
-    Prefers the Python that QGIS itself ships so the created environments match
-    QGIS's version, then falls back to PATH. Raises rather than returning a bare
-    "python3" that would fail later inside a worker thread with no explanation.
+# Interpreter names tried on PATH, newest first, so a machine with several
+# Pythons does not settle for the oldest one that happens to be called python3.
+_PYTHON_NAMES = ("python3.13", "python3.12", "python3.11", "python3.10", "python3", "python")
 
-    Note that under QGIS `sys.executable` is the QGIS binary (qgis-bin), not an
-    interpreter, so it is only usable when the host really is Python.
-    """
-    candidates = []
+# QGIS launched from Finder/Dock inherits launchd's PATH (/usr/bin:/bin:...),
+# which hides Homebrew and resolves python3 to Apple's 3.9. Probe these too.
+_PYTHON_DIRS = {
+    "darwin": ["/opt/homebrew/bin", "/usr/local/bin"],
+    "linux": ["/usr/local/bin", "/usr/bin"],
+    "win32": [],
+}
+
+
+def _python_candidates():
+    """Every interpreter worth trying, best first, without duplicates."""
     if IS_WINDOWS:
-        candidates += [
+        candidates = [
             os.path.join(sys.prefix, "python.exe"),
             os.path.join(sys.prefix, "Scripts", "python.exe"),
         ]
     else:
-        candidates += [
+        candidates = [
             os.path.join(sys.prefix, "bin", "python3"),
             os.path.join(sys.prefix, "bin", "python"),
         ]
@@ -240,20 +248,83 @@ def base_python():
     if os.path.basename(sys.executable).lower().startswith("python"):
         candidates.append(sys.executable)
 
-    for candidate in candidates:
-        if os.path.isfile(candidate):
+    candidates += [shutil.which(name) for name in _PYTHON_NAMES]
+    candidates += [
+        os.path.join(directory, name + EXE_SUFFIX)
+        for directory in _PYTHON_DIRS[_platform_key()]
+        for name in _PYTHON_NAMES
+    ]
+
+    existing = [path for path in candidates if path and os.path.isfile(path)]
+    return list(dict.fromkeys(existing))
+
+
+def _python_version(exe):
+    """(major, minor) reported by `exe`, or None when it does not run."""
+    try:
+        completed = subprocess.run(
+            [exe, "-c", "import sys; print(*sys.version_info[:2])"],
+            capture_output=True, timeout=15, **subprocess_kwargs()
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    parts = completed.stdout.split()
+    if completed.returncode != 0 or len(parts) != 2:
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def base_python():
+    """Interpreter used to create the managed virtualenvs.
+
+    Prefers the Python that QGIS itself ships so the created environments match
+    QGIS's version, then falls back to PATH and the usual install locations.
+    Anything older than MIN_PYTHON is skipped. Raises rather than returning a
+    bare "python3" that would fail later inside a worker thread with no
+    explanation.
+
+    Note that under QGIS `sys.executable` is the QGIS binary (qgis-bin), not an
+    interpreter, so it is only usable when the host really is Python.
+    """
+    too_old = []
+    for candidate in _python_candidates():
+        version = _python_version(candidate)
+        if version is None:
+            continue
+        if version >= MIN_PYTHON:
             return candidate
+        too_old.append(f"{candidate} ({version[0]}.{version[1]})")
 
-    for name in ("python3", "python"):
-        hit = shutil.which(name)
-        if hit:
-            return hit
-
+    required = ".".join(str(part) for part in MIN_PYTHON)
+    found = ""
+    if too_old:
+        found = "Found only older interpreters:\n  " + "\n  ".join(too_old) + "\n\n"
     raise RuntimeError(
-        "No Python interpreter was found to build the plugin's environments.\n\n"
-        f"Checked QGIS's own location ({sys.prefix}) and PATH.\n"
-        "Install Python 3, or make it available on PATH, and try again."
+        "No suitable Python interpreter was found to build the plugin's "
+        f"environments (Python {required} or newer is required).\n\n"
+        f"{found}"
+        f"Checked QGIS's own location ({sys.prefix}), PATH and the usual "
+        "install directories.\n"
+        f"Install Python {required}+ (on macOS: brew install python@3.12) "
+        "and try again."
     )
+
+
+def venv_version(venv_name):
+    """(major, minor) recorded in a virtualenv's pyvenv.cfg, or None."""
+    cfg = os.path.join(ENVS_DIR, venv_name, "pyvenv.cfg")
+    try:
+        with open(cfg, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip() in ("version", "version_info"):
+            parts = value.strip().split(".")
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                return int(parts[0]), int(parts[1])
+    return None
 
 
 # Written into a virtualenv once its requirements have installed successfully.
@@ -278,6 +349,11 @@ def venv_is_provisioned(venv_name, requirements_path=None):
     refresh; env_setup performs the deeper runtime checks during setup.
     """
     if not os.path.isfile(venv_python(venv_name)):
+        return False
+
+    # Built before MIN_PYTHON was enforced (e.g. on Apple's 3.9): rebuild it.
+    version = venv_version(venv_name)
+    if version is not None and version < MIN_PYTHON:
         return False
 
     stamp = os.path.join(ENVS_DIR, venv_name, READY_STAMP)
@@ -414,8 +490,16 @@ def bundled_environment(base, plugin_dir):
 
 TAUDEM_KEY = "taudem"
 # Built from the vendored TauDEM sources by build_native.sh and shipped in
-# bin/<tag>/ next to the routing engine (linux_amd64 and darwin_arm64).
-BUNDLED_TAUDEM_TOOLS = ("pitremove", "dinfflowdir")
+# bin/<tag>/ next to the routing engine (darwin_arm64, linux_amd64 and
+# windows_amd64).
+BUNDLED_TAUDEM_TOOLS = (
+    "pitremove",
+    "dinfflowdir",
+    "areadinf",
+    "threshold",
+    "dinfdistdown",
+    "dinfdistup",
+)
 
 
 def find_taudem(name, plugin_dir=None, extra_dirs=None):
@@ -575,10 +659,11 @@ REQUIRED_TOOLS = [
              FEATURE_EIL, _hint("gdal")),
     ToolSpec("mpiexec", "mpiexec", "MPI launcher",
              FEATURE_DEPOSITION, _hint("mpiexec")),
-    ToolSpec(TAUDEM_KEY, "pitremove", "TauDEM (pitremove)",
-             FEATURE_DEPOSITION, _hint("taudem")),
-    ToolSpec(TAUDEM_KEY, "dinfflowdir", "TauDEM (dinfflowdir)",
-             FEATURE_DEPOSITION, _hint("taudem")),
+    *(
+        ToolSpec(TAUDEM_KEY, tool, f"TauDEM ({tool})",
+                 FEATURE_DEPOSITION, _hint("taudem"))
+        for tool in BUNDLED_TAUDEM_TOOLS
+    ),
 ]
 
 # The zonal engine ships with the plugin rather than being installed, so it is

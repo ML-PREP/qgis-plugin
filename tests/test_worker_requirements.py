@@ -30,7 +30,8 @@ DISTRIBUTION = {
 }
 
 # Modules supplied by the plugin itself or by the interpreter, not by pip.
-LOCAL_MODULES = {"py_files", "MLPREP_Plugin_v3_Final"}
+# "rasters" is depzone/rasters.py, imported by its sibling prep.py.
+LOCAL_MODULES = {"py_files", "MLPREP_Plugin_v3_Final", "rasters"}
 
 
 def third_party(names):
@@ -109,14 +110,50 @@ def test_go_embedded_script_imports_are_declared(var_name):
         ("landslide_worker.py", "requirements_ls.txt"),
         ("pinn_inference.py", "requirements_eil.txt"),
         ("headless_model.py", "requirements_eil.txt"),
+        # Depositional-zone stage: every script the deposition worker runs.
+        ("depzone/prep.py", "requirements_eil.txt"),
+        ("depzone/rasters.py", "requirements_eil.txt"),
+        ("depzone/weiss_tpi_landform.py", "requirements_eil.txt"),
+        (
+            "ml_dfi_handoff/steps/step0_baseline_alpha_angle/"
+            "step0_baseline_alpha_angle.py",
+            "requirements_eil.txt",
+        ),
+        (
+            "ml_dfi_handoff/steps/step3_train_ml_dfi_model/"
+            "apply_ml_dfi_model_to_rasters.py",
+            "requirements_eil.txt",
+        ),
+        (
+            "ml_dfi_handoff/steps/fos_source_refinement/fos_source_refinement.py",
+            "requirements_eil.txt",
+        ),
+        (
+            "ml_dfi_handoff/steps/step5_cleanup_only/step5_cleanup_only.py",
+            "requirements_eil.txt",
+        ),
     ],
 )
 def test_standalone_worker_imports_are_declared(script, requirements):
     path = os.path.join(REPO, script)
-    with open(path, encoding="utf-8") as handle:
+    with open(path, encoding="utf-8-sig") as handle:
         source = handle.read()
     modules = third_party(imports_of_source(source, script))
     assert_covered(modules, requirements, script)
+
+
+def test_ml_dfi_model_library_is_declared():
+    """The pickled ML-DFI model needs its library at unpickle time.
+
+    No script imports xgboost by name -- joblib.load pulls it in -- so the
+    import scan above cannot see it.
+    """
+    import json
+
+    metadata = os.path.join(REPO, "model_dfi", "model_metadata.json")
+    with open(metadata, encoding="utf-8") as f:
+        model_type = json.load(f)["model_type"]
+    assert_covered({model_type}, "requirements_eil.txt", "model_dfi/trained_ml_dfi_model.pkl")
 
 
 def test_no_worker_imports_fiona():

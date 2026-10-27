@@ -24,7 +24,9 @@ ZONAL_PARAMS = MappingProxyType(
 
 DEFAULT_MAX_ITERATIONS = 10
 
-DEPOSITION_CORES = os.cpu_count() if os.cpu_count() else 0
+# MPI processes for TauDEM and the routing engine: one per CPU core (never 0,
+# which mpiexec rejects).
+DEPOSITION_CORES = os.cpu_count() or 1
 
 DEPOSITION_OUTPUT_SUBDIR = "deposition_zone_output"
 DEFAULT_OUTPUT_SUBDIR = "EIL_Results"

@@ -32,9 +32,9 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
 # without it CRS lookups fail and outputs lose their EPSG code. The plugin
 # points PROJ_DATA at share/proj for these binaries only (bundled_environment).
 #
-# pitremove and dinfflowdir (TauDEM) link the same GDAL, so all three
-# executables share one lib/ directory.
-ARG BINARIES="step4_deposition_zone_mpi pitremove dinfflowdir"
+# The TauDEM tools link the same GDAL, so all the executables share one
+# lib/ directory.
+ARG BINARIES="step4_deposition_zone_mpi pitremove dinfflowdir areadinf threshold dinfdistdown dinfdistup"
 RUN mkdir -p /out/lib \
  && for bin in $BINARIES; do cp build-linux/$bin /out/; done \
  && for bin in $BINARIES; do ldd /out/$bin; done \

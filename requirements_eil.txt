@@ -20,6 +20,9 @@ pandas
 # Modelling
 tensorflow
 scikit-learn
+# ML-DFI (depositional favorability) model: an xgboost model saved with joblib.
+xgboost
+joblib
 keras-tuner
 imbalanced-learn
 scikeras

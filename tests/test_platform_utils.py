@@ -207,6 +207,41 @@ class TestBasePython:
             pu.base_python()
         assert "Install Python 3" in str(excinfo.value)
 
+    def test_result_meets_the_minimum_version(self):
+        # Act
+        completed = subprocess.run(
+            [pu.base_python(), "-c",
+             "import sys; print(sys.version_info[0], sys.version_info[1])"],
+            capture_output=True, **pu.subprocess_kwargs()
+        )
+
+        # Assert
+        version = tuple(int(part) for part in completed.stdout.split())
+        assert version >= pu.MIN_PYTHON
+
+    def test_skips_an_interpreter_older_than_the_minimum(self, monkeypatch):
+        # Arrange -- QGIS launched from Finder sees only /usr/bin, whose
+        # python3 is Apple's 3.9; the scripts need 3.10+ union syntax.
+        versions = {"/usr/bin/python3": (3, 9), "/opt/homebrew/bin/python3.11": (3, 11)}
+        monkeypatch.setattr(pu, "_python_candidates", lambda: list(versions))
+        monkeypatch.setattr(pu, "_python_version", versions.get)
+
+        # Act / Assert
+        assert pu.base_python() == "/opt/homebrew/bin/python3.11"
+
+    def test_names_the_rejected_version_when_only_old_ones_exist(
+        self, monkeypatch
+    ):
+        # Arrange
+        monkeypatch.setattr(pu, "_python_candidates", lambda: ["/usr/bin/python3"])
+        monkeypatch.setattr(pu, "_python_version", lambda exe: (3, 9))
+
+        # Act / Assert
+        with pytest.raises(RuntimeError) as excinfo:
+            pu.base_python()
+        assert "/usr/bin/python3 (3.9)" in str(excinfo.value)
+        assert "3.10" in str(excinfo.value)
+
 
 class TestBundledBinary:
     def test_reports_the_hardware_arch_when_translated_by_rosetta(

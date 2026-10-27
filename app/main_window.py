@@ -8,12 +8,14 @@ from qgis.PyQt.QtWidgets import QMainWindow, QMessageBox, QProgressDialog, QTabW
 
 from .. import grass_addons
 from .. import platform_utils as pu
+from ..common import roi_data
 from ..common.paths import PLUGIN_DIR
 from ..common.roi import admin_boundaries
 from ..dependency_panel import DependencyPanel
 from ..eil.tab import EilTab
 from ..grass_gate import GrassRequiredDialog
 from ..landslide.tab import LandslideTab
+from .roi_download import RoiDownloadDialog
 from .setup_worker import SetupWorker
 from .styles import MASTER_STYLESHEET
 
@@ -38,21 +40,15 @@ class UnifiedPluginDialog(QMainWindow):
         # Resolves TauDEM/MPI/GRASS/GDAL up front so a missing program is
         # reported before a run starts rather than minutes into one.
         self.dependency_panel = DependencyPanel(PLUGIN_DIR, self)
+        self.main_tabs.addTab(self.dependency_panel, "Dependencies")
 
-        boundaries = admin_boundaries()
-        self.landslide = LandslideTab(self, boundaries)
-        self.eil = EilTab(
-            self,
-            self.dependency_panel,
-            self.show_dependencies,
-            boundaries["Municipality"],
-        )
-
-        self.main_tabs.addTab(self.landslide.widget, "Landslide Detection")
-        self.main_tabs.addTab(self.eil.widget, "EIL Detection")
-        self.dependency_tab_index = self.main_tabs.addTab(
-            self.dependency_panel, "Dependencies"
-        )
+        # Both feature tabs read the admin boundaries as they are built. A
+        # --no-roi release has none until _ensure_roi_ready downloads them.
+        self.landslide = None
+        self.eil = None
+        roi_dir = roi_data.resolve_roi_dir()
+        if roi_dir:
+            self._build_feature_tabs(roi_dir)
 
         self.dependency_panel.statusChanged.connect(self._on_dependencies_changed)
 
@@ -68,6 +64,23 @@ class UnifiedPluginDialog(QMainWindow):
             SETUP_CHECK_DELAY_MS, self.check_and_setup_environments
         )
 
+    def _build_feature_tabs(self, roi_dir):
+        boundaries = admin_boundaries(roi_dir)
+        self.landslide = LandslideTab(self, boundaries)
+        self.eil = EilTab(
+            self,
+            self.dependency_panel,
+            self.show_dependencies,
+            boundaries,
+        )
+        self.main_tabs.insertTab(0, self.landslide.widget, "Landslide Detection")
+        self.main_tabs.insertTab(1, self.eil.widget, "EIL Detection")
+        self.main_tabs.setCurrentIndex(0)
+
+    @property
+    def dependency_tab_index(self):
+        return self.main_tabs.indexOf(self.dependency_panel)
+
     def show_dependencies(self):
         self.main_tabs.setCurrentIndex(self.dependency_tab_index)
 
@@ -78,12 +91,17 @@ class UnifiedPluginDialog(QMainWindow):
             self.dependency_tab_index,
             "Dependencies" if not missing else f"⚠ Dependencies ({len(missing)})",
         )
-        self.eil.refresh_run_button()
+        if self.eil is not None:
+            self.eil.refresh_run_button()
 
     # ------------------------------------------------------------------
     # First-time setup
     # ------------------------------------------------------------------
     def check_and_setup_environments(self, force=False):
+        # Every tab reads the admin boundaries: nothing proceeds without them.
+        if not self._ensure_roi_ready():
+            return
+
         # The EIL stage runs r.slopeunits inside GRASS: nothing proceeds until
         # both are installed.
         if not self._ensure_grass_ready():
@@ -115,6 +133,27 @@ class UnifiedPluginDialog(QMainWindow):
         # I dont think we need to ask user for this (The plugin wont be usable if venv deps are not installed)
         if reply == QMessageBox.Yes:
             self._start_setup()
+
+    def _ensure_roi_ready(self):
+        """Block on a modal download until the boundary data is installed.
+
+        Only a --no-roi release without a cached copy downloads anything.
+        Cancelling or failing closes the plugin, as the GRASS gate does.
+        """
+        if self.eil is not None:
+            return True
+
+        roi_dir = roi_data.resolve_roi_dir()
+        if roi_dir is None:
+            gate = RoiDownloadDialog(roi_data.manifest_url(), self)
+            if gate.exec_() != QtWidgets.QDialog.Accepted:
+                self.close()
+                return False
+            roi_dir = roi_data.cache_dir()
+
+        self._build_feature_tabs(roi_dir)
+        self._on_dependencies_changed()
+        return True
 
     def _ensure_grass_ready(self):
         """Block on a modal prompt until GRASS and r.slopeunits are found.

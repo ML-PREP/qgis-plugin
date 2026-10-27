@@ -21,10 +21,14 @@ the shipped bin/linux_amd64 TauDEM tools run. It works anywhere QGIS's Python
 bindings import.
 
     run_eil_pipeline.py --dem /data/dem.tif \\
-        --raster Slope=/data/slope.tif --raster Clay=/data/clay.tif ...
+        --raster Slope=/data/slope.tif --raster Clay=/data/clay.tif ... \\
+        --ndvi /data/ndvi.tif
 
 Raster names are the model inputs (eil.params.MODEL_INPUT_NAMES); the DEM is
-always fed in as "Elev", as the tab does.
+always fed in as "Elev", as the tab does. `--model rainfall` picks a PINN model
+by its id in model/pinn_models.json (default: that file's "default").
+`--model grid-v2-9` runs a grid model: grid_inference.py replaces the zonal
+engine, seam cleanup and pinn_inference.py, and needs every input raster.
 """
 
 import argparse
@@ -115,33 +119,77 @@ def select_rasters(dem_path, named, log):
     return selected
 
 
+def resolve_model(model_id, log):
+    """PINN model `model_id` (None: the configured default), or None.
+
+    Read from model/pinn_models.json, the same list the EIL tab offers.
+    """
+    pinn_models = plugin_module("eil.pinn_models")
+    config = plugin_module("common.paths").PINN_MODEL_CONFIG
+    try:
+        catalog = pinn_models.load_catalog(config)
+    except pinn_models.PinnModelConfigError as exc:
+        log(f"[ERROR] {exc}")
+        return None
+
+    model = catalog.find(model_id or catalog.default_id)
+    if model is None:
+        choices = ", ".join(m.id for m in catalog.models)
+        log(f"[ERROR] Unknown --model {model_id!r}; choose one of: {choices}")
+        return None
+    if not model.is_available:
+        log(f"[ERROR] PINN model {model.id!r} has no file at {model.path}")
+        return None
+    log(f"[Model] PINN model: {model.name} ({model.path})")
+    return model
+
+
 def default_output_folder(dem_path):
     """EIL_Results beside the DEM -- the tab's default."""
     return os.path.join(os.path.dirname(dem_path), params.DEFAULT_OUTPUT_SUBDIR)
 
 
-def expected_outputs(output_folder):
+def expected_outputs(output_folder, is_grid=False):
     """(label, path) of every file the stages write, in pipeline order."""
     deposition = os.path.join(output_folder, params.DEPOSITION_OUTPUT_SUBDIR)
 
     def out(*parts):
         return os.path.join(output_folder, *parts)
 
-    def dep(name):
-        return os.path.join(deposition, name)
+    def dep(*parts):
+        return os.path.join(deposition, *parts)
 
-    return [
-        ("Slope units (Go)", out("Final_SlopeUnits.gpkg")),
-        ("Slope units, seams removed", out("Cleaned_SlopeUnits.gpkg")),
-        ("PINN features (Go)", out("Merged_PINN_Features.gpkg")),
-        ("PINN features, seams removed", out("Cleaned_PINN_Features.gpkg")),
-        ("Hazard map (PINN)", out("Final_Hazard_Map.gpkg")),
-        ("PINN raster (Overall_Output.tif)", out("overall_output", "Overall_Output.tif")),
+    if is_grid:
+        prediction = [
+            ("Gridded slope (grid inputs)", out("Grid_Inputs", "Slope.tif")),
+            ("Hazard grid (grid PINN)", out("Final_Hazard_Grid.tif")),
+            ("Grid physics bands", out("overall_output", "Grid_Physics.tif")),
+            ("PINN susceptible cells", out("overall_output", "objective2_rasters",
+                                           "Susceptibility.tif")),
+        ]
+    else:
+        prediction = [
+            ("Slope units (Go)", out("Final_SlopeUnits.gpkg")),
+            ("Slope units, seams removed", out("Cleaned_SlopeUnits.gpkg")),
+            ("PINN features (Go)", out("Merged_PINN_Features.gpkg")),
+            ("PINN features, seams removed", out("Cleaned_PINN_Features.gpkg")),
+            ("Hazard map (PINN)", out("Final_Hazard_Map.gpkg")),
+            ("PINN raster (Overall_Output.tif)", out("overall_output", "Overall_Output.tif")),
+            ("PINN FoS raster", out("overall_output", "objective2_rasters",
+                                     "FactorOfSafety.tif")),
+        ]
+    return prediction + [
         ("TauDEM pit-filled DEM", dep("fel.tif")),
         ("TauDEM D-inf flow angle", dep("ang.tif")),
         ("TauDEM slope", dep("slp.tif")),
-        ("Routing source mask", dep("source.tif")),
-        ("Depositional mask", dep("step4_pure_depositional_mask.tif")),
+        ("ML-DFI probability", dep("ml_dfi_probability.tif")),
+        ("Baseline alpha (Step 0)", dep("BaselineAlpha.tif")),
+        ("FoS-refined source mask", dep("fos_source_refinement",
+                                        "refined_source_mask.tif")),
+        ("Routing source mask", dep("source_final.tif")),
+        ("Initial runout (Step 4)", out("Initial_DepZone.tif")),
+        ("Depositional mask (Step 4)", out("ML_DFI_Depositional_Zone.tif")),
+        ("Depositional zone, cleaned (Step 5)", out("PostDep_DepZone.tif")),
     ]
 
 
@@ -274,8 +322,16 @@ class ConsoleView:
 class ConsoleDashboard:
     """Replaces eil.dashboard: hazard-class tally of the PINN output."""
 
+    # No municipality layer headlessly: grid runs report only class totals.
+    municipality_boundary = None
+
     def __init__(self, log):
         self._log = log
+
+    def show_tallies(self, tallies):
+        """Grid models hand over per-municipality tallies; there are none here."""
+        if tallies:
+            self._log(f"[Dashboard] {len(tallies)} municipalities tallied.")
 
     def update(self, hazard_gpkg):
         from qgis.core import QgsVectorLayer
@@ -421,12 +477,21 @@ def build_request(args, log):
         log("[Warning] The DEM's CRS has no authority id; the Go engine gets "
             "an empty -targetCRS (the plugin would do the same).")
 
+    model = resolve_model(args.model, log)
+    if model is None:
+        return None
+
     rasters = select_rasters(dem_path, parse_raster_args(args.raster), log)
     output_folder = os.path.abspath(args.output or default_output_folder(dem_path))
     os.makedirs(output_folder, exist_ok=True)
+    ndvi_path = os.path.abspath(args.ndvi) if args.ndvi else ""
+    if ndvi_path and not os.path.exists(ndvi_path):
+        log(f"[Warning] NDVI: {ndvi_path} does not exist; ignored (as the tab would).")
+        ndvi_path = ""
     return pipeline_module.EilRunRequest(
         dem_path=dem_path, dem_crs=dem_crs, rasters=rasters,
-        output_folder=output_folder,
+        output_folder=output_folder, ndvi_path=ndvi_path, model_path=model.path,
+        model_kind=model.kind, cell_size_m=model.cell_size_m,
     )
 
 
@@ -471,13 +536,15 @@ def drive(app, pipeline, view, request, stall_grace):
     return outcome
 
 
-def summarize(view, output_folder, outcome):
+def summarize(view, request, outcome):
     """Print stage timings and outputs; returns the exit code."""
+    output_folder = request.output_folder
+    outputs = expected_outputs(output_folder, request.is_grid)
     view.log("\n===== SUMMARY =====")
     for stage, seconds in view.stages.durations():
         view.log(f"   {stage:<28} {seconds:8.1f} s")
     view.log("Outputs (seam-cleaned files appear only when slivers were merged):")
-    for label, path in expected_outputs(output_folder):
+    for label, path in outputs:
         size = f"{os.path.getsize(path) / 1e6:9.2f} MB" if os.path.exists(path) else "      --   "
         view.log(f"   {size}  {label:<34} {os.path.relpath(path, output_folder)}")
     for error in view.errors:
@@ -485,7 +552,7 @@ def summarize(view, output_folder, outcome):
 
     if outcome["cancelled"]:
         return EXIT_CANCELLED
-    final_mask = expected_outputs(output_folder)[-1][1]
+    final_mask = outputs[-1][1]
     if outcome["stalled"] or view.errors or not os.path.exists(final_mask):
         view.log("RESULT: pipeline did NOT reach the depositional mask.")
         return EXIT_FAILED
@@ -499,7 +566,12 @@ def parse_args(argv):
     parser.add_argument("--raster", action="append", default=[], metavar="NAME=PATH",
                         help="model input raster; repeat for each "
                              f"({', '.join(params.MODEL_INPUT_NAMES.values())})")
+    parser.add_argument("--ndvi", help="NDVI GeoTIFF for the depositional zone's "
+                                       "ML-DFI model (without it the stage is skipped)")
     parser.add_argument("--output", help="output folder (default: EIL_Results beside the DEM)")
+    parser.add_argument("--model", metavar="ID",
+                        help="PINN model id from model/pinn_models.json "
+                             "(default: the file's \"default\")")
     parser.add_argument("--setup-only", action="store_true",
                         help="provision the EIL venv + GRASS addon, then exit")
     parser.add_argument("--skip-setup", action="store_true",
@@ -566,7 +638,7 @@ def _run_with_view(args, app, pu, request, view):
     finally:
         # The plugin never stops the probe after a normal finish; do it here.
         pipeline._probe.kill()
-    return summarize(view, request.output_folder, outcome)
+    return summarize(view, request, outcome)
 
 
 def main(argv=None):
