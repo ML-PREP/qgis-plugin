@@ -44,9 +44,9 @@ if(MSVC)
     target_compile_definitions(step4_deposition_zone_mpi PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-# The two TauDEM tools the plugin runs before Step 4 (pit filling and
-# D-infinity flow direction). Shipping them with the engine removes TauDEM as
-# a separate install. Off by default: only the Linux build enables it so far.
+# The TauDEM tools the plugin runs before Step 4: pit filling, D-infinity
+# flow direction, and the ML-DFI predictor chain. Shipping them with the engine removes TauDEM as
+# a separate install. Off by default; build_native.sh enables it for macOS and Linux.
 option(MLPREP_BUILD_TAUDEM_TOOLS "Build pitremove and dinfflowdir" OFF)
 
 function(add_taudem_tool name)
@@ -76,5 +76,24 @@ if(MLPREP_BUILD_TAUDEM_TOOLS)
         "${TAUDEM_SRC_DIR}/DinfFlowDirmn.cpp"
         "${TAUDEM_SRC_DIR}/dinf.cpp"
         "${TAUDEM_SRC_DIR}/Node.cpp"
+    )
+    # The ML-DFI predictor chain: catchment area, stream threshold and
+    # flow-path distances down to streams and up to ridges.
+    add_taudem_tool(areadinf
+        "${TAUDEM_SRC_DIR}/areadinfmn.cpp"
+        "${TAUDEM_SRC_DIR}/areadinf.cpp"
+        "${TAUDEM_SRC_DIR}/ReadOutlets.cpp"
+    )
+    add_taudem_tool(threshold
+        "${TAUDEM_SRC_DIR}/Thresholdmn.cpp"
+        "${TAUDEM_SRC_DIR}/Threshold.cpp"
+    )
+    add_taudem_tool(dinfdistdown
+        "${TAUDEM_SRC_DIR}/DinfDistDownmn.cpp"
+        "${TAUDEM_SRC_DIR}/DinfDistDown.cpp"
+    )
+    add_taudem_tool(dinfdistup
+        "${TAUDEM_SRC_DIR}/DinfDistUpmn.cpp"
+        "${TAUDEM_SRC_DIR}/DinfDistUp.cpp"
     )
 endif()

@@ -7,7 +7,7 @@
 # the release is staged through an explicit allow/deny list and then verified.
 #
 #   ./build_release.sh                          # every platform
-#   ./build_release.sh --no-roi                 # omit roi_data/ (see below)
+#   ./build_release.sh --no-roi                 # omit roi_data/; downloaded on first run
 #   ./build_release.sh --platform windows_amd64 # only that platform's engines
 #
 set -euo pipefail
@@ -40,6 +40,11 @@ EXCLUDES=(
   ".pytest_cache/"
   "output/"
   "scratch/"
+  # Pipeline run outputs left in the plugin directory (several GB each).
+  "/run_*/"
+  "/deposition_zone_output/"
+  "/EIL_Results/"
+  ".coverage"
   ".DS_Store"
   ".git/"
   ".gitignore"
@@ -168,6 +173,11 @@ echo "Size:    $(du -h "$zip_path" | cut -f1)"
 if [ "$INCLUDE_ROI" -eq 1 ]; then
   echo
   echo "Note: roi_data/ is ~1.4 GB and dominates this archive. Pass --no-roi to"
-  echo "      omit it; roi_data/ can then be copied into the installed plugin"
-  echo "      directory afterwards, since it is only read at runtime."
+  echo "      omit it; the plugin then downloads it on first run."
+else
+  echo
+  echo "Note: built without roi_data/. On first run the plugin downloads it into"
+  echo "      ~/.mlprep_envs/roi_data from the server in common/roi_data.py"
+  echo "      (DEFAULT_MANIFEST_URL). Publish the data there with:"
+  echo "        python3 scripts/package_roi_data.py --version <data version>"
 fi

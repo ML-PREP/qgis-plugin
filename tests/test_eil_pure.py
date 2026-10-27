@@ -20,6 +20,8 @@ hazard = importlib.import_module("mlprep_plugin.eil.hazard_stats")
 params = importlib.import_module("mlprep_plugin.eil.params")
 commands = importlib.import_module("mlprep_plugin.eil.workers.commands")
 progress = importlib.import_module("mlprep_plugin.eil.workers.zonal_progress")
+run_progress = importlib.import_module("mlprep_plugin.eil.progress")
+completion = importlib.import_module("mlprep_plugin.eil.completion")
 roi = importlib.import_module("mlprep_plugin.common.roi")
 paths = importlib.import_module("mlprep_plugin.common.paths")
 
@@ -130,43 +132,118 @@ class TestRoutingCommand:
         assert flags["--alpha"] == "alpha.tif"
         assert flags["--out-deposition"] == "dep.tif"
         assert flags["--out-dfs"] == os.path.join(str(tmp_path), "step4_dfs.tif")
-        assert flags["--threshold"] == "0.2"
+        assert flags["--threshold"] == "0.01"
+        assert flags["--out-mask"] == os.path.join(str(tmp_path), "Initial_DepZone.tif")
+
+
+def feed_zonal(lines, steps):
+    shown, current = [], 0.0
+    for line in lines:
+        current, value = progress.advance(current, line, steps)
+        if value is not None:
+            shown.append(value)
+    return shown
 
 
 class TestZonalProgress:
-    def test_phases_drive_the_bar(self):
-        # Arrange
-        step = progress.zonal_step(3)
+    def test_engine_lines_drive_the_stage(self):
+        # Arrange: the engine's real output, 2 tiles and 2 rasters
+        steps = progress.zonal_steps(total_tiles=2, total_rasters=2)
         lines = [
-            "[Phase 1] Merging Tiles",
+            "[Phase 1] Tiling DEM for Parallel Slope Unit Generation...",
+            "> Tile 1 generated in 3m2s.",
             "noise",
-            "[Phase 1] Polygonizing",
-            "[RASTER_DONE] a",
-            "[RASTER_DONE] b",
-            "[RASTER_DONE] c",
-            "[MERGE_DONE]",
+            "> Tile 0 generated in 3m9s.",
+            "[Phase 1] Merging Interlocking Tiles...",
+            "[Phase 1] Sieve-Cleaning Seams and Polygonizing to GPKG...",
+            "[Phase 2] Rasterizing slope units onto the zone grid...",
+            "[RASTER_DONE] Slope",
+            "[RASTER_DONE] Elev",
+            "[Merging] Combining all features...",
+            "[MERGE_DONE] /out/Merged_PINN_Features.gpkg",
         ]
 
         # Act
-        shown, current = [], 0.0
-        for line in lines:
-            current, value = progress.advance(current, line, step)
-            if value is not None:
-                shown.append(value)
+        shown = feed_zonal(lines, steps)
 
         # Assert
-        assert shown == [40, 50, 65, 80, 95, 100]
+        assert shown == [28, 57, 57, 71, 86, 91, 97, 97, 100]
 
-    def test_zonal_phase_is_capped_below_complete(self):
-        current, value = progress.advance(94.0, "[RASTER_DONE]", 45.0)
-        assert value == progress.ZONAL_CEILING
+    def test_tiles_never_pass_the_merge_milestone(self):
+        steps = progress.zonal_steps(total_tiles=1, total_rasters=1)
+        assert feed_zonal(["> Tile 0 generated in 1s."] * 3, steps) == [57, 57, 57]
 
-    def test_zero_rasters_does_not_divide_by_zero(self):
-        assert progress.zonal_step(0) == progress.ZONAL_SHARE
+    def test_rasters_never_pass_the_feature_merge(self):
+        steps = progress.zonal_steps(total_tiles=1, total_rasters=1)
+        current, value = progress.advance(96.0, "[RASTER_DONE] x", steps)
+        assert value == int(progress.RASTERS_DONE)
+
+    def test_zero_counts_do_not_divide_by_zero(self):
+        steps = progress.zonal_steps(total_tiles=0, total_rasters=0)
+        assert steps.tile == progress.TILES_DONE
+
+    def test_tile_count_comes_from_the_grid_params(self):
+        assert progress.tile_count({"tileCols": 3, "tileRows": 4}) == 12
+        assert progress.tile_count({}) == 1
+
+
+class TestRunProgress:
+    def test_each_stage_fills_its_own_slice(self):
+        for stage, (start, end) in run_progress.STAGE_SLICES.items():
+            assert run_progress.overall(stage, 0) == start
+            assert run_progress.overall(stage, 100) == end
+
+    @pytest.mark.parametrize("route", ["STAGE_SLICES", "GRID_STAGE_SLICES"])
+    def test_slices_tile_the_whole_bar_in_pipeline_order(self, route):
+        slices = list(getattr(run_progress, route).values())
+        assert slices[0][0] == 0
+        assert slices[-1][1] == run_progress.COMPLETE
+        assert all(a[1] == b[0] for a, b in zip(slices, slices[1:]))
+
+    def test_the_grid_stage_hands_over_to_routing(self):
+        assert run_progress.overall(run_progress.GRID, 0) == 0
+        assert run_progress.overall(run_progress.GRID, 100) == 65
+
+    def test_stage_percent_is_clamped(self):
+        assert run_progress.overall(run_progress.PINN, 250) == 65
+        assert run_progress.overall(run_progress.PINN, -5) == 62
+
+    def test_bar_never_moves_backwards(self):
+        shown = run_progress.advance(50, run_progress.ZONAL, 100)
+        assert shown == 50
+
+    def test_bar_moves_forward_into_the_next_stage(self):
+        shown = run_progress.advance(38, run_progress.SEAMS, 50)
+        assert shown == 50
+
+
+class TestCompletionMessage:
+    def test_names_the_output_folder(self):
+        # Act
+        title, text = completion.completion_message("/out/EIL_Results", routing_ran=True)
+
+        # Assert
+        assert title == completion.TITLE
+        assert "/out/EIL_Results" in text
+        assert "skipped" not in text
+
+    def test_says_when_routing_was_skipped(self):
+        title, text = completion.completion_message("/out", routing_ran=False)
+        assert "Depositional routing was skipped" in text
+
+    def test_names_the_clipping_region(self):
+        _, text = completion.completion_message(
+            "/out", routing_ran=True, roi_label="Makilala, Cotabato"
+        )
+        assert "clipped to Makilala, Cotabato" in text
+
+    def test_says_nothing_about_clipping_without_a_region(self):
+        _, text = completion.completion_message("/out", routing_ran=True)
+        assert "clipped" not in text
 
 
 class TestRoi:
-    def test_every_level_has_a_shapefile_and_column(self, tmp_path):
+    def test_every_level_has_a_shapefile_and_columns(self, tmp_path):
         boundaries = roi.admin_boundaries(str(tmp_path))
         assert tuple(boundaries) == roi.ADMIN_LEVELS
         assert boundaries["Municipality"] == {
@@ -174,7 +251,76 @@ class TestRoi:
                 str(tmp_path), "phl_admbnda_adm3_psa_namria_20231106.shp"
             ),
             "col": "ADM3_EN",
+            "pcode": "ADM3_PCODE",
+            "parents": ("ADM2_EN",),
         }
+
+    def test_region_has_no_parent_columns(self, tmp_path):
+        assert roi.admin_boundaries(str(tmp_path))["Region"]["parents"] == ()
+
+    def test_barangay_labels_name_municipality_and_province(self, tmp_path):
+        assert roi.admin_boundaries(str(tmp_path))["Barangay"]["parents"] == (
+            "ADM3_EN",
+            "ADM2_EN",
+        )
+
+
+class TestRoiChoices:
+    def test_label_joins_name_and_parents(self):
+        # Act
+        choices = roi.label_choices(
+            "Municipality", [("PH1247", "Makilala", ("Cotabato",))]
+        )
+
+        # Assert
+        assert choices == (
+            roi.RoiChoice("Municipality", "PH1247", "Makilala", "Makilala, Cotabato"),
+        )
+
+    def test_same_name_in_different_parents_stays_distinct(self):
+        choices = roi.label_choices(
+            "Municipality",
+            [("PH1", "San Jose", ("Tarlac",)), ("PH2", "San Jose", ("Batangas",))],
+        )
+        assert [c.label for c in choices] == ["San Jose, Batangas", "San Jose, Tarlac"]
+
+    def test_colliding_labels_are_suffixed_with_the_pcode(self):
+        choices = roi.label_choices(
+            "Barangay",
+            [("PH2", "Poblacion", ("Alpha", "Beta")), ("PH1", "Poblacion", ("Alpha", "Beta"))],
+        )
+        assert [c.label for c in choices] == [
+            "Poblacion, Alpha, Beta [PH1]",
+            "Poblacion, Alpha, Beta [PH2]",
+        ]
+
+    def test_rows_without_a_name_or_pcode_are_dropped(self):
+        choices = roi.label_choices(
+            "Province", [("", "Nowhere", ()), ("PH9", "", ()), ("PH3", "Bukidnon", ())]
+        )
+        assert [c.pcode for c in choices] == ["PH3"]
+
+    def test_blank_parents_are_skipped_in_the_label(self):
+        (choice,) = roi.label_choices("Province", [("PH3", "Bukidnon", ("", None))])
+        assert choice.label == "Bukidnon"
+
+
+class TestRoiHelpers:
+    def test_attribute_filter_quotes_column_and_value(self):
+        assert roi.attribute_filter("ADM3_PCODE", "PH1247") == "\"ADM3_PCODE\" = 'PH1247'"
+
+    def test_attribute_filter_escapes_single_quotes(self):
+        assert roi.attribute_filter("ADM4_EN", "O'Donnell") == "\"ADM4_EN\" = 'O''Donnell'"
+
+    @pytest.mark.parametrize(
+        "path, expected",
+        [
+            ("/out/Final_Hazard_Map.gpkg", "/out/Final_Hazard_Map_ROI.gpkg"),
+            ("/out/PostDep_DepZone.tif", "/out/PostDep_DepZone_ROI.tif"),
+        ],
+    )
+    def test_clipped_path_sits_beside_the_source(self, path, expected):
+        assert roi.clipped_path(path) == expected
 
 
 class TestPaths:

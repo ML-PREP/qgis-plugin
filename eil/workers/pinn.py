@@ -1,4 +1,9 @@
-"""Stage 2 of the EIL pipeline: PINN susceptibility predictions."""
+"""Stage 2 of the EIL pipeline: PINN susceptibility predictions.
+
+Runs one prediction script in the EIL venv -- pinn_inference.py for slope-unit
+models, grid_inference.py for grid models -- and hands over its final JSON
+status line. A "PROGRESS <0-100>" line from the script moves the progress bar.
+"""
 
 import json
 import subprocess
@@ -7,6 +12,8 @@ from qgis.PyQt.QtCore import QThread, pyqtSignal
 
 from ... import platform_utils as pu
 from ...common.cancellable import CancellableProcessMixin
+
+PROGRESS_PREFIX = "PROGRESS "
 
 
 def _status_line(line):
@@ -18,39 +25,35 @@ def _status_line(line):
     return response if isinstance(response, dict) and "status" in response else None
 
 
+def _progress_line(line):
+    """The percent if `line` is a "PROGRESS <n>" line, else None."""
+    if not line.startswith(PROGRESS_PREFIX):
+        return None
+    try:
+        return int(line[len(PROGRESS_PREFIX):])
+    except ValueError:
+        return None
+
+
 class PINNPredictionWorker(CancellableProcessMixin, QThread):
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
     finished = pyqtSignal(object, str)
 
-    def __init__(
-        self, python_exe, script_path, input_gpkg, model_path, output_gpkg, dem_path
-    ):
+    def __init__(self, argv, title="PINN AI MODEL"):
         super().__init__()
         self._init_cancellation()
-        self.python_exe = python_exe
-        self.script_path = script_path
-        self.input_gpkg = input_gpkg
-        self.model_path = model_path
-        self.output_gpkg = output_gpkg
-        self.dem_path = dem_path
+        self.argv = list(argv)
+        self.title = title
 
     def run(self):
         try:
-            self.log.emit("\n--- INITIATING PINN AI MODEL ---")
+            self.log.emit(f"\n--- INITIATING {self.title} ---")
             self.log.emit("Loading TensorFlow and parsing features...")
 
-            cmd = [
-                self.python_exe,
-                self.script_path,
-                self.input_gpkg,
-                self.model_path,
-                self.output_gpkg,
-                self.dem_path,
-            ]
             process = self._track(
                 subprocess.Popen(
-                    cmd,
+                    self.argv,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,  # merge stderr into stdout
                     **pu.subprocess_kwargs(),
@@ -65,6 +68,10 @@ class PINNPredictionWorker(CancellableProcessMixin, QThread):
                 status = _status_line(clean)
                 if status is not None:
                     response = status
+                    continue
+                percent = _progress_line(clean)
+                if percent is not None:
+                    self.progress.emit(percent)
                     continue
                 self.log.emit(f"   > PINN: {clean}")
 

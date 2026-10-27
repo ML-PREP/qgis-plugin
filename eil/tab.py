@@ -4,17 +4,27 @@ import os
 from typing import Optional
 
 from qgis.PyQt import QtCore
+from qgis.PyQt.QtCore import QSettings
 from qgis.PyQt.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from .. import platform_utils as pu
 from ..busy_overlay import BusyOverlay
+from ..common import paths
+from ..common.roi_selector import RoiSelector
 from ..eil_mainwindow import Ui_MainWindow as Ui_EIL
-from ..log_panel import LEVEL_ERROR, LEVEL_WARNING as LOG_WARNING
+from ..log_panel import LEVEL_ERROR
+from ..log_panel import LEVEL_SUCCESS as LOG_SUCCESS
+from ..log_panel import LEVEL_WARNING as LOG_WARNING
+from ..progress_pulse import ProgressPulse
 from .dashboard import HazardDashboard
 from .feature_info import FeatureHoverFilter
 from .inputs import EilInputs
+from .model_picker import PinnModelPicker
 from .params import DEFAULT_MAX_ITERATIONS, DEFAULT_OUTPUT_SUBDIR
 from .pipeline import EilPipeline, EilRunRequest
+
+# Between PINN Model and Output Setup in the left panel.
+ROI_PANEL_POSITION = 3
 
 
 class EilTab(QtCore.QObject):
@@ -24,7 +34,7 @@ class EilTab(QtCore.QObject):
     RUN_LABEL = "Run Pipeline"
     BUSY_LABEL = "Running…"
 
-    def __init__(self, window, dependency_panel, show_dependencies, municipality):
+    def __init__(self, window, dependency_panel, show_dependencies, admin_config):
         super().__init__(window)
         self._window = window
         self._dependency_panel = dependency_panel
@@ -38,18 +48,38 @@ class EilTab(QtCore.QObject):
         self.ui.setupUi(self._form_host)
         self.widget = self.ui.centralwidget
 
-        self.dashboard = HazardDashboard(self.ui, self.log, municipality)
+        self.dashboard = HazardDashboard(
+            self.ui, self.log, admin_config["Municipality"]
+        )
+        self.roi = RoiSelector(
+            self.ui,
+            admin_config,
+            self.ui.verticalLayout,
+            ROI_PANEL_POSITION,
+            title="Clip Results to Region of Interest",
+            checkable=True,
+            parent=self,
+        )
 
         # Parented to the scroll area's viewport, not the contents widget: the
         # contents get disabled during a run, and a disabled parent would
         # disable the veil with it.
         self._overlay = BusyOverlay(self.ui.scrollAreaLeft.viewport())
+        self._pulse = ProgressPulse(self.ui.progressBar)
 
         self.ui.plainTextEdit_Details.setReadOnly(True)
         self._hover = FeatureHoverFilter(self.ui.plainTextEdit_Details, parent=self)
         self._hover.watch(self.ui)
 
         self.inputs = EilInputs(window, self.ui, self.log, parent=self)
+        self.model_picker = PinnModelPicker(
+            self.ui.comboBox_Model,
+            self.ui.label_ModelDescription,
+            paths.PINN_MODEL_CONFIG,
+            QSettings(),
+            self.log,
+            parent=self,
+        )
         self.pipeline = EilPipeline(
             self, dependency_panel, parent=self
         )  # NOTE:: A worker
@@ -90,6 +120,11 @@ class EilTab(QtCore.QObject):
     def should_load_results(self):
         return self.ui.checkBox_LoadResults.isChecked()
 
+    def show_completion(self, title, text):
+        """Tell the user the whole pipeline has finished."""
+        self.log(f"\n{title}", LOG_SUCCESS)
+        QMessageBox.information(self._window, title, text)
+
     def set_running(self, running, stage="", hint=""):
         """Enter or leave the busy state, in one place, for every exit path."""
         self._running = running
@@ -103,11 +138,13 @@ class EilTab(QtCore.QObject):
         if running:
             self.ui.pushButton_Run.setText(self.BUSY_LABEL)
             self._overlay.start(stage, hint)
+            self._pulse.start()
             self.ui.progressBar.setFormat(f"{stage}  %p%")
             return
 
         self.ui.pushButton_Run.setText(self.RUN_LABEL)
         self._overlay.stop()
+        self._pulse.stop()
         self.ui.progressBar.setFormat("%p%")
         self.refresh_run_button()
 
@@ -174,19 +211,52 @@ class EilTab(QtCore.QObject):
             self.log("No parameters selected. Pipeline finished early.", LOG_WARNING)
             return None
 
+        # Checked now rather than after the zonal-statistics stage, which can
+        # take hours before the model is first needed.
+        model = self.model_picker.selected()
+        if model is None:
+            QMessageBox.warning(
+                self._window,
+                "No PINN model",
+                "No PINN model file is available. Choose one under "
+                f'"PINN Model", or add one in:\n{paths.PINN_MODEL_CONFIG}',
+            )
+            self.log("[ERROR] No PINN model file is available.", LEVEL_ERROR)
+            return None
+
+        roi = None
+        if self.roi.is_enabled:
+            roi = self.roi.selection()
+            if roi is None:
+                QMessageBox.warning(
+                    self._window,
+                    "Error",
+                    "Select a region of interest to clip to, or untick "
+                    '"Clip Results to Region of Interest".',
+                )
+                self.log("[ERROR] Clipping is on but no region is selected.")
+                return None
+
         return EilRunRequest(
             dem_path=dem_path,
             dem_crs=dem_crs,
             rasters=rasters,
             output_folder=self._output_folder(dem_path),
+            ndvi_path=self.inputs.ndvi_path(),
+            roi=roi,
+            model_path=model.path,
+            model_kind=model.kind,
+            cell_size_m=model.cell_size_m,
         )
 
     def _on_run_clicked(self):
         if self._running:
             return
 
-        self._dependency_panel.refresh()
-        if not self._dependencies_met():
+        # Dependencies not being setup
+        try:
+            self.refresh_and_check_dependencies()
+        except Exception as exc:
             return
 
         self.log("\n--- STARTING FULL EIL PIPELINE ---")
@@ -194,7 +264,13 @@ class EilTab(QtCore.QObject):
 
         request = self._build_request()
         if request is not None:
+            self.log(f"[Model] PINN model: {self.model_picker.selected().name}")
             self.pipeline.start(request)
+
+    def refresh_and_check_dependencies(self):
+        self._dependency_panel.refresh()
+        if not self._dependencies_met():
+            raise Exception("Dependencies are not installed")
 
     def _on_cancel_clicked(self):
         if not self._running:

@@ -56,6 +56,20 @@ class TestCreateVenv:
         # Assert
         assert first == second
 
+    def test_rebuilds_an_environment_on_too_old_python(self, envs):
+        # Arrange -- a working venv whose pyvenv.cfg says it was built on 3.9.
+        target = envs / "old"
+        es.create_venv(pu.base_python(), str(target))
+        (target / "pyvenv.cfg").write_text(
+            "home = /usr/bin\nversion = 3.9.6\n", encoding="utf-8")
+
+        # Act
+        exe = es.create_venv(pu.base_python(), str(target))
+
+        # Assert -- recreated from base_python, not reused.
+        assert es.interpreter_works(exe)
+        assert pu.venv_version("old") >= pu.MIN_PYTHON
+
     def test_rebuilds_a_half_created_environment(self, envs):
         # Arrange -- a directory exists but holds no interpreter. The old code
         # tested for the directory, so this state was never repaired.
@@ -254,3 +268,19 @@ class TestProvisioningStamp:
     def test_missing_stamp_means_not_provisioned(self, envs):
         es.create_venv(pu.base_python(), str(envs / "env"))
         assert not pu.venv_is_provisioned("env")
+
+    def test_environment_built_on_too_old_python_is_not_provisioned(
+        self, envs, tmp_path
+    ):
+        # Arrange -- a venv created from Apple's Python 3.9 before the
+        # minimum-version check existed must be rebuilt, not reused.
+        target = envs / "env"
+        es.create_venv(pu.base_python(), str(target))
+        requirements = tmp_path / "r.txt"
+        requirements.write_text("six\n", encoding="utf-8")
+        es.mark_provisioned(str(target), str(requirements))
+        (target / "pyvenv.cfg").write_text(
+            "home = /usr/bin\nversion = 3.9.6\n", encoding="utf-8")
+
+        # Act / Assert
+        assert not pu.venv_is_provisioned("env", str(requirements))

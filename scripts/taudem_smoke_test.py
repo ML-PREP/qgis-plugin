@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """End-to-end check of the bundled TauDEM tools on the current platform.
 
-Runs pitremove and dinfflowdir from bin/<tag>/ under the host's mpiexec on a
+Runs every bundled TauDEM tool (pitremove, dinfflowdir, areadinf, threshold,
+dinfdistdown, dinfdistup) from bin/<tag>/ under the host's mpiexec on a
 synthetic DEM with a known pit, exactly as the deposition worker does
 (platform_utils.find_taudem + bundled_environment), then verifies the output.
 Also checks that the bundled routing engine can load its libraries.
@@ -32,6 +33,10 @@ EPSG = 32651
 ROWS, COLS = 150, 200
 PIT = (slice(70, 76), slice(90, 96))
 PROCESS_COUNTS = (1, 2)
+OUTPUTS = ("fel", "ang", "slp", "sca", "src", "dd", "du")
+# Specific catchment area (m) above which a cell is a stream: about 20 cells
+# of upslope area on the 10 m synthetic grid.
+STREAM_SCA_THRESHOLD = 200
 ENGINE_NAME = "step4_deposition_zone_mpi"
 # Windows exit codes for "a DLL could not be found / loaded".
 DLL_LOAD_FAILURES = {0xC0000135, 0xC000007B, -1073741515, -1073741701}
@@ -83,17 +88,31 @@ def run(cmd, env):
         sys.exit(f"PROJ could not use the bundled proj.db:\n{output}")
 
 
-def run_taudem(mpiexec, env, dem_path, out_dir, processes):
-    pitremove = pu.find_taudem("pitremove", PLUGIN_DIR)
-    dinfflowdir = pu.find_taudem("dinfflowdir", PLUGIN_DIR)
-    for tool in (pitremove, dinfflowdir):
+def bundled_tools():
+    tools = {name: pu.find_taudem(name, PLUGIN_DIR) for name in pu.BUNDLED_TAUDEM_TOOLS}
+    for tool in tools.values():
         if not pu.is_bundled(PLUGIN_DIR, tool):
             sys.exit(f"expected the bundled tool, resolved: {tool}")
+    return tools
+
+
+def run_taudem(mpiexec, env, dem_path, out_dir, processes):
+    """Every bundled tool, chained as the deposition worker chains them."""
+    tools = bundled_tools()
     os.makedirs(out_dir, exist_ok=True)
-    fel, ang, slp = (os.path.join(out_dir, n + ".tif") for n in ("fel", "ang", "slp"))
+    fel, ang, slp, sca, src, dd, du = (
+        os.path.join(out_dir, n + ".tif") for n in OUTPUTS
+    )
     base = [mpiexec, "-n", str(processes)]
-    run(base + [pitremove, "-z", dem_path, "-fel", fel], env)
-    run(base + [dinfflowdir, "-fel", fel, "-ang", ang, "-slp", slp], env)
+    run(base + [tools["pitremove"], "-z", dem_path, "-fel", fel], env)
+    run(base + [tools["dinfflowdir"], "-fel", fel, "-ang", ang, "-slp", slp], env)
+    run(base + [tools["areadinf"], "-ang", ang, "-sca", sca, "-nc"], env)
+    run(base + [tools["threshold"], "-ssa", sca, "-src", src,
+                "-thresh", str(STREAM_SCA_THRESHOLD)], env)
+    run(base + [tools["dinfdistdown"], "-ang", ang, "-fel", fel, "-src", src,
+                "-dd", dd, "-m", "ave", "s", "-nc"], env)
+    run(base + [tools["dinfdistup"], "-ang", ang, "-fel", fel, "-slp", slp,
+                "-du", du, "-m", "ave", "s", "-thresh", "0", "-nc"], env)
 
 
 def read(path):
@@ -116,6 +135,11 @@ def check_outputs(dem, out_dir):
     ang, ang_nd, _ = read(os.path.join(out_dir, "ang.tif"))
     slp, slp_nd, _ = read(os.path.join(out_dir, "slp.tif"))
     valid_ang = ang[ang != ang_nd]
+    sca, sca_nd, _ = read(os.path.join(out_dir, "sca.tif"))
+    src, src_nd, _ = read(os.path.join(out_dir, "src.tif"))
+    dd, dd_nd, _ = read(os.path.join(out_dir, "dd.tif"))
+    du, du_nd, _ = read(os.path.join(out_dir, "du.tif"))
+    valid_src = src[src != src_nd]
     return {
         "fel >= dem": bool(np.all(fel[fel != fel_nd] >= dem[fel != fel_nd] - 1e-4)),
         "no pits left in fel": remaining_pits(fel) == 0 < remaining_pits(dem),
@@ -123,6 +147,13 @@ def check_outputs(dem, out_dir):
         "ang in [0, 2pi]": bool(np.all((valid_ang >= 0) & (valid_ang <= 2 * np.pi + 1e-6))),
         "ang mostly valid": valid_ang.size > 0.95 * ang.size,
         "slp >= 0": bool(np.all(slp[slp != slp_nd] >= 0)),
+        "sca >= cell width": bool(np.all(sca[sca != sca_nd] >= 10 - 1e-6))
+        and np.count_nonzero(sca != sca_nd) > 0,
+        "src has streams and non-streams": bool(set(np.unique(valid_src)) == {0.0, 1.0}),
+        "dd has valid cells, >= 0": np.count_nonzero(dd != dd_nd) > 0
+        and bool(np.all(dd[dd != dd_nd] >= 0)),
+        "du has valid cells, >= 0": np.count_nonzero(du != du_nd) > 0
+        and bool(np.all(du[du != du_nd] >= 0)),
     }
 
 
@@ -132,7 +163,7 @@ def check_runs_agree(work):
         f"{name} identical for -n {PROCESS_COUNTS[0]} and -n {PROCESS_COUNTS[1]}":
             np.array_equal(read(os.path.join(first, name + ".tif"))[0],
                            read(os.path.join(second, name + ".tif"))[0])
-        for name in ("fel", "ang", "slp")
+        for name in OUTPUTS
     }
 
 

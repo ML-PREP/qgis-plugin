@@ -27,7 +27,7 @@ jobs:
       - run: python -m pytest tests -m "not slow" -q
 
   # Builds the routing engine plus the bundled TauDEM tools (pitremove,
-  # dinfflowdir) with MSVC, bundles their DLLs and proj.db, and runs them under
+  # dinfflowdir, areadinf, threshold, dinfdistdown, dinfdistup) with MSVC, bundles their DLLs and proj.db, and runs them under
   # MS-MPI. The result is bin/windows_amd64/, uploaded as an artifact.
   windows-native:
     name: Windows engine + TauDEM
@@ -76,7 +76,8 @@ jobs:
       - name: Bundle DLLs and proj.db
         run: |
           New-Item -ItemType Directory -Force $env:OUT | Out-Null
-          foreach ($exe in "step4_deposition_zone_mpi", "pitremove", "dinfflowdir") {
+          foreach ($exe in "step4_deposition_zone_mpi", "pitremove", "dinfflowdir",
+                           "areadinf", "threshold", "dinfdistdown", "dinfdistup") {
             Copy-Item "build/$exe.exe" $env:OUT
           }
           python scripts/bundle_windows_deps.py `

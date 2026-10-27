@@ -782,7 +782,7 @@ External tools the plugin requires, and where they come from per platform.
 |------|-------|---------|-------|----------|
 | Python 3 | QGIS-bundled | QGIS-bundled | system | no (venv created at runtime) |
 | MPI | Homebrew `open-mpi` | MS-MPI | `openmpi-bin` | no |
-| TauDEM | manual build (no Homebrew formula) | TauDEM installer | bundled (`pitremove`, `dinfflowdir`) | **Linux only** (prototype) |
+| TauDEM | bundled (`pitremove`, `dinfflowdir`; arm64) | bundled (`.exe`) | bundled (`pitremove`, `dinfflowdir`) | **yes** (darwin_arm64, windows_amd64, linux_amd64) |
 | GRASS GIS 8.x | `.app` bundle | OSGeo4W / standalone | distro package | no |
 | GDAL CLI | Homebrew / QGIS | OSGeo4W / QGIS | distro / QGIS | no (use QGIS's) |
 | `r.slopeunits` addon | `g.extension` | `g.extension` | `g.extension` | no |

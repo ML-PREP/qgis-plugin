@@ -14,8 +14,10 @@ _ZONAL_DEFAULTS = (
     ("tileOverlap", 50),
 )
 
-# Fixed tuning of the C++/MPI depositional routing model.
-ROUTING_THRESHOLD = "0.2"
+# Fixed tuning of the C++/MPI depositional routing model, as in MLPREP v4.4.
+# The Step 4 default config uses a proportion threshold of 0.2; v4.4 runs the
+# plugin at 0.01, accepting far weaker D-infinity branches as runout.
+ROUTING_THRESHOLD = "0.01"
 ROUTING_DFI_MID = "0.69"
 ROUTING_ALPHA_GAIN_PER_METER = "0.03333"
 
@@ -72,7 +74,8 @@ def build_routing_command(mpi_exe, cores, engine, inputs, output_dir, deposition
         "--out-dfs",
         out("step4_dfs.tif"),
         "--out-mask",
-        out("step4_runout_mask.tif"),
+        # The raw runout before Step 5 cleanup.
+        out("Initial_DepZone.tif"),
         "--out-deposition",
         deposition_out,
         "--threshold",

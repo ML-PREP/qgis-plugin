@@ -12,6 +12,7 @@ from .. import platform_utils as pu
 from ..common import paths
 from ..common.qgis_layers import add_raster_layer
 from ..common.qt_helpers import render_preview
+from ..common.roi_selector import RoiSelector
 from ..landslide_mainwindow import Ui_MainWindow as Ui_Landslide
 from .detection import (
     DetectionRequest,
@@ -19,9 +20,9 @@ from .detection import (
     detection_environment,
     parse_worker_result,
 )
-from .roi_selector import RoiSelector
 
 RESULT_FILENAME = "temp_landslide_result.tif"
+ROI_PANEL_POSITION = 2
 
 
 class LandslideTab(QtCore.QObject):
@@ -40,7 +41,13 @@ class LandslideTab(QtCore.QObject):
 
         self.ui.Label_ROI.setText("LULC Shapefile:")
         self.ui.GroupBox_ROI.setTitle("LULC Preview")
-        self.roi = RoiSelector(self.ui, admin_config, parent=self)
+        self.roi = RoiSelector(
+            self.ui,
+            admin_config,
+            self.ui.verticalLayout_4,
+            ROI_PANEL_POSITION,
+            parent=self,
+        )
 
         self._connect_signals()
 
@@ -152,8 +159,9 @@ class LandslideTab(QtCore.QObject):
             after=after,
             lulc=self.ui.PTE_ROI.toPlainText() or "None",
             roi_path=boundary["path"],
-            filter_col=boundary["col"],
-            filter_val=self.roi.name,
+            # By PCODE: names repeat across the country.
+            filter_col=boundary["pcode"],
+            filter_val=self.roi.choice.pcode if self.roi.choice else "",
         )
 
     def run_detection(self):
