@@ -4,7 +4,6 @@ import os
 import json
 from typing import Optional
 from tensorflow.keras.callbacks import CSVLogger
-from sys import setdlopenflags
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.layers import *

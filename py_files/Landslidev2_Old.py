@@ -6,7 +6,6 @@ import os
 import json
 from typing import Optional
 from tensorflow.keras.callbacks import CSVLogger
-from sys import setdlopenflags
 from sklearn.metrics import confusion_matrix
 from tensorflow import keras
 from tensorflow.keras.layers import *
