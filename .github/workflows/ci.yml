@@ -18,8 +18,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -40,8 +38,6 @@ jobs:
       OUT: bin/windows_amd64
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       # MS-MPI runtime (mpiexec) + SDK (headers, msmpi.lib for CMake's FindMPI).
       - uses: mpi4py/setup-mpi@v1
