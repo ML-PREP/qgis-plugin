@@ -2,7 +2,6 @@
 import os
 import json
 from tensorflow.keras.callbacks import CSVLogger
-from sys import setdlopenflags
 from tensorflow import keras
 from tensorflow.keras.layers import *
 import tensorflow as tf

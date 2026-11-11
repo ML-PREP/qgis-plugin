@@ -85,6 +85,12 @@ bundle_linux_local() {
   local out="$1" bin
   command -v patchelf >/dev/null || { echo "error: patchelf not installed" >&2; exit 1; }
   mkdir -p "$out/lib"
+  # Open MPI 5 hosts lack libmpi_cxx (see MPI in CMakeLists.txt).
+  for bin in $ENGINE $TAUDEM_TOOLS; do
+    if readelf -d "$out/$bin" | grep -q 'NEEDED.*libmpi_cxx'; then
+      echo "error: $bin links libmpi_cxx, which Open MPI 5 hosts lack" >&2; exit 1
+    fi
+  done
   # See docker/Dockerfile.linux for why MPI and libstdc++ are excluded.
   for bin in $ENGINE $TAUDEM_TOOLS; do ldd "$out/$bin"; done \
     | awk '/=> \//{print $3}' | sort -u \
@@ -122,12 +128,18 @@ build_linux_docker() {
   echo "    $(du -sh "$out" | cut -f1) total"
 }
 
-# The Windows engine cannot be built here (it needs MSVC + MS-MPI, see
-# build_manual_msvc.ps1). The prebuilt artefact is archived under build_manual/
-# and vendored into bin/ so that bin/ stays fully reproducible from the tree.
+# The Windows engine cannot be built here (it needs MSVC + MS-MPI). CI builds
+# it with the TauDEM tools and their DLLs (the bin-windows_amd64 artifact, see
+# README). The old prebuilt engine under build_manual/ is only a fallback for a
+# bin/windows_amd64/ that has no engine: it has no bundled DLLs, so copying it
+# over the CI engine would replace the tested build with one that needs host DLLs.
 vendor_windows() {
   local src="$CPP_DIR/build_manual/$ENGINE.exe"
   local out="$BIN_ROOT/windows_amd64"
+  if [ -f "$out/$ENGINE.exe" ]; then
+    echo "  note: keeping existing bin/windows_amd64/$ENGINE.exe (not vendoring build_manual/)"
+    return 0
+  fi
   [ -f "$src" ] || { echo "  note: no prebuilt Windows engine to vendor"; return 0; }
   mkdir -p "$out"
   cp "$src" "$out/$ENGINE.exe"

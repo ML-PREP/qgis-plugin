@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(step4_deposition_zone_mpi LANGUAGES CXX)
+project(step4_deposition_zone_mpi LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,7 +11,16 @@ set(
     "Path to the TauDEM source subset used by Step 4"
 )
 
-find_package(MPI REQUIRED)
+# Only the MPI C API is used. Linking MPI::MPI_CXX pulled in libmpi_cxx, which
+# Open MPI 5 removed, so binaries built against Open MPI 4 failed to load on
+# hosts with Open MPI 5 ("libmpi_cxx.so.40: cannot open shared object file").
+# The SKIP defines keep mpi.h from declaring the C++ bindings at all.
+find_package(MPI REQUIRED COMPONENTS C)
+
+function(mlprep_link_mpi target)
+    target_link_libraries(${target} PRIVATE MPI::MPI_C)
+    target_compile_definitions(${target} PRIVATE OMPI_SKIP_MPICXX=1 MPICH_SKIP_MPICXX=1)
+endfunction()
 
 find_package(GDAL CONFIG QUIET)
 if(NOT GDAL_FOUND)
@@ -26,12 +35,9 @@ add_executable(step4_deposition_zone_mpi
 
 target_include_directories(step4_deposition_zone_mpi PRIVATE
     "${TAUDEM_SRC_DIR}"
-    ${MPI_CXX_INCLUDE_DIRS}
 )
 
-target_link_libraries(step4_deposition_zone_mpi PRIVATE
-    MPI::MPI_CXX
-)
+mlprep_link_mpi(step4_deposition_zone_mpi)
 
 if(TARGET GDAL::GDAL)
     target_link_libraries(step4_deposition_zone_mpi PRIVATE GDAL::GDAL)
@@ -55,7 +61,7 @@ function(add_taudem_tool name)
         "${TAUDEM_SRC_DIR}/tiffIO.cpp"
     )
     target_include_directories(${name} PRIVATE "${TAUDEM_SRC_DIR}")
-    target_link_libraries(${name} PRIVATE MPI::MPI_CXX)
+    mlprep_link_mpi(${name})
     if(TARGET GDAL::GDAL)
         target_link_libraries(${name} PRIVATE GDAL::GDAL)
     else()

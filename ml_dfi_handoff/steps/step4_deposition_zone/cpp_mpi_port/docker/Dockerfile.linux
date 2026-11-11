@@ -35,6 +35,15 @@ RUN cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
 # The TauDEM tools link the same GDAL, so all the executables share one
 # lib/ directory.
 ARG BINARIES="step4_deposition_zone_mpi pitremove dinfflowdir areadinf threshold dinfdistdown dinfdistup"
+
+# Fail the build if any binary needs libmpi_cxx: Open MPI 5 hosts do not have
+# it, so the binary would not load there (see MPI in CMakeLists.txt).
+RUN for bin in $BINARIES; do \
+      if readelf -d build-linux/$bin | grep -q 'NEEDED.*libmpi_cxx'; then \
+        echo "error: $bin links libmpi_cxx, which Open MPI 5 hosts lack" >&2; exit 1; \
+      fi; \
+    done
+
 RUN mkdir -p /out/lib \
  && for bin in $BINARIES; do cp build-linux/$bin /out/; done \
  && for bin in $BINARIES; do ldd /out/$bin; done \
