@@ -162,7 +162,7 @@ MLPREP_Plugin_v4/
 ├── vendor/grass_addons/     Bundled copy of the r.slopeunits GRASS addon (offline install)
 ├── bin/<platform>/          Built binaries: NOT committed, produced by the build scripts
 │
-├── ml-prep-scripts/         Git submodule: Go slope-unit / zonal-statistics engine
+├── ml-prep-scripts/         Go slope-unit / zonal-statistics engine
 ├── ml_dfi_handoff/          ML-DFI workflow steps 0–6; step4 holds the C++/MPI routing
 │   └── steps/step4_deposition_zone/cpp_mpi_port/   engine and the vendored TauDEM sources
 │
@@ -364,10 +364,17 @@ output in `bin/<platform>/`, then a packaging step.
 ### 0. Get the sources
 
 ```sh
-git clone --recurse-submodules <repo-url> MLPREP_Plugin_v4
-# or, in an existing checkout:
-git submodule update --init
+git clone <repo-url> MLPREP_Plugin_v4
 ```
+
+A plain clone contains every source the build needs. There are no submodules
+or other repositories to fetch:
+
+| Source | Location |
+|---|---|
+| Go zonal / slope-unit engine | `ml-prep-scripts/` |
+| C++/MPI routing engine | `ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/` |
+| TauDEM sources (subset) | `ml_dfi_handoff/steps/step4_deposition_zone/cpp_mpi_port/third_party/taudem/` |
 
 Keep the checkout directory named **`MLPREP_Plugin_v4`**. `build_release.sh`
 uses the directory name as the plugin's folder name inside the zip.
@@ -387,7 +394,7 @@ uses the directory name as the plugin's folder name inside the zip.
 ./build_binaries.sh
 ```
 
-Cross-compiles `ml-prep-scripts/` for `darwin/arm64`, `darwin/amd64`,
+Cross-compiles the Go engine in `ml-prep-scripts/` (part of this repository) for `darwin/arm64`, `darwin/amd64`,
 `linux/amd64` and `windows/amd64` into `bin/<goos>_<goarch>/zonal[.exe]`. It
 only replaces `zonal` binaries, never the native engines that share `bin/`.
 
@@ -520,7 +527,6 @@ Point it at a public host before distributing widely.
 ### Release checklist
 
 ```sh
-git submodule update --init
 ./build_binaries.sh
 ./build_native.sh all                                   # on an Apple Silicon Mac with Docker
 gh run download <run-id> -n bin-windows_amd64 -D bin/windows_amd64
